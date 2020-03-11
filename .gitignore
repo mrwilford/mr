@@ -1,2 +1,9 @@
+#ignore node modules
 node_modules/
-.vscode
+
+#vscode: share workspace tasks, settings, recommended extensions; ignore the rest
+.vscode/*
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/settings.json
+!.vscode/extensions.json
