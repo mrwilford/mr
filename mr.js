@@ -2058,11 +2058,11 @@ mr.drive.ss.prototype.write = function(args){
    * @return number - In the range [min,max]
    */
   if(Number.prototype.gaussian) mr.log.warn('Number.prototype.gaussian ALREADY EXISTS & IS BEING OVERWRITTEN');
-  Object.defineProperty(Number.prototype,'gaussian',{value:Number.prototype.boxMuller});
+  Object.defineProperty(Number.prototype,'gaussian',{value:function({min=0,max=1}={}){return this.boxMuller({min:min,max:max})}});
 
   /**
    * number.boxMuller(domain) - Use the Box-Muller method to transform this uniformly distributed number to be inside of a Gaussian distribution.
-   * @param domain : {min,max} - The starting domain (min & max) for this number.
+   * @param domain : {min,max} - The starting domain (min,max) for this number.
    * @param max : number - Max allowable value for this number, must be greater than the min and this number; defaults to 1.
    * @param min : number - Min allowable value for this number, must be lower than the max and this number; defaults to 0.
    * @return number - In the range [min,max]
@@ -2126,6 +2126,7 @@ let r = rng();
 log('r: '+r);
 let n = r.normalize();
 log('n: '+n);
+//log('r: '+r);
 let g = r.gaussian();
 log('g: '+g);
 
