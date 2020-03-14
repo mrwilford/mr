@@ -1,2 +1,12 @@
 {
+  "files.associations": {
+    "*jsbeautifyrc*": "jsonc",
+  },
+  "editor.tabSize": 2,
+  "editor.insertSpaces": false,
+  "editor.formatOnSave": true,
+  "editor.detectIndentation": false,
+  "editor.defaultFormatter": "HookyQR.beautify",
+  "beautify.config": ".vscode\\jsbeautifyrc.json",
+  "beautify.ignore": [], //specify files to NOT beautify
 }
