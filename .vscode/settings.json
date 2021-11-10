@@ -1,12 +1,95 @@
 {
-  "files.associations": {
-    "*jsbeautifyrc*": "jsonc",
-  },
-  "editor.tabSize": 2,
-  "editor.insertSpaces": false,
-  "editor.formatOnSave": true,
-  "editor.detectIndentation": false,
-  "editor.defaultFormatter": "HookyQR.beautify",
-  "beautify.config": ".vscode\\jsbeautifyrc.json",
-  "beautify.ignore": [], //specify files to NOT beautify
+	"files.exclude": {
+		//"node_modules/": true
+	},
+	"editor.tabSize": 2,
+	"editor.insertSpaces": false,
+	"editor.autoClosingBrackets": "never", //always,languageDefined,beforeWhitespace,never
+	"editor.formatOnSave": true,
+	"editor.detectIndentation": false,
+	"editor.acceptSuggestionOnCommitCharacter": false,
+	"editor.parameterHints.enabled": false,
+	"editor.suggestOnTriggerCharacters": false,
+	"editor.quickSuggestions": false,
+	"editor.codeActionsOnSave": [
+		"source.addMissingImports",
+	],
+	////////////////////////////////////////////////////
+	// LANGUAGE SETTINGS
+	////////////////////////////////////////////////////
+	"[php]": {
+		"editor.defaultFormatter": "vscode.php-language-features"
+	},
+	"[json]": {
+		"editor.defaultFormatter": "vscode.json-language-features"
+	},
+	"json.maxItemsComputed": 5000,
+	"json.format.enable": true,
+	"json.schemas": [],
+	"json.trace.server": "verbose",
+	"javascript.format.enable": true,
+	"javascript.format.insertSpaceAfterCommaDelimiter": false, //true,
+	"javascript.format.insertSpaceAfterConstructor": false,
+	"javascript.format.insertSpaceAfterFunctionKeywordForAnonymousFunctions": false, //true,
+	"javascript.format.insertSpaceAfterKeywordsInControlFlowStatements": false, //true,
+	"javascript.format.insertSpaceAfterOpeningAndBeforeClosingNonemptyParenthesis": false,
+	"javascript.format.insertSpaceAfterOpeningAndBeforeClosingNonemptyBrackets": false,
+	"javascript.format.insertSpaceAfterOpeningAndBeforeClosingNonemptyBraces": false, //true,
+	"javascript.format.insertSpaceAfterOpeningAndBeforeClosingTemplateStringBraces": false,
+	"javascript.format.insertSpaceAfterOpeningAndBeforeClosingJsxExpressionBraces": false,
+	"javascript.format.insertSpaceAfterSemicolonInForStatements": true,
+	"javascript.format.insertSpaceBeforeAndAfterBinaryOperators": true,
+	"javascript.format.insertSpaceBeforeFunctionParenthesis": false,
+	"javascript.format.placeOpenBraceOnNewLineForControlBlocks": false,
+	"javascript.format.placeOpenBraceOnNewLineForFunctions": false,
+	"javascript.format.semicolons": "ignore",
+	"javascript.autoClosingTags": true,
+	"javascript.implicitProjectConfig.checkJs": false,
+	"javascript.implicitProjectConfig.experimentalDecorators": false,
+	"javascript.preferences.importModuleSpecifier": "auto",
+	"javascript.preferences.quoteStyle": "single",
+	"javascript.referencesCodeLens.enabled": false,
+	"javascript.referencesCodeLens.showOnAllFunctions": false,
+	"javascript.suggest.enabled": true,
+	"javascript.suggest.autoImports": true,
+	"javascript.suggest.completeFunctionCalls": false,
+	"javascript.suggest.completeJSDocs": false, //true,
+	"javascript.suggest.names": true,
+	"javascript.suggest.paths": true,
+	"javascript.suggest.includeAutomaticOptionalChainCompletions": true,
+	"javascript.suggestionActions.enabled": true,
+	"javascript.updateImportsOnFileMove.enabled": "prompt",
+	"javascript.validate.enable": true,
+	"[typescript]": {
+		"editor.defaultFormatter": "vscode.typescript-language-features"
+	},
+	"dart.env": {},
+	"dart.lineLength": 80,
+	"dart.flutterGutterIcons": true,
+	"dart.flutterHotReloadOnSave": true,
+	"dart.flutterHotRestartOnSave": true,
+	"dart.previewHotReloadOnSaveWatcher": false,
+	"dart.flutterOutline": true,
+	"dart.flutterCreateOrganization": null,
+	"dart.flutterCreateAndroidLanguage": "java",
+	"dart.flutterCreateIOSLanguage": "objc",
+	"dart.openDevTools": "always",
+	"dart.previewFlutterUiGuides": false,
+	"dart.previewFlutterUiGuidesCustomTracking": false,
+	"dart.showTodos": true,
+	"C_Cpp.autoAddFileAssociations": true,
+	"C_Cpp.autocomplete": "Default",
+	"C_Cpp.formatting": "Default",
+	//"C_Cpp.clang_format_style": "file",
+	"C_Cpp.default.includePath": null,
+	"C_Cpp.loggingLevel": "Warning",
+	"[html]": {
+		"editor.defaultFormatter": "vscode.html-language-features"
+	},
+	"[css]": {
+		"editor.defaultFormatter": "vscode.css-language-features"
+	},
+	"[markdown]": {
+		"editor.defaultFormatter": "vscode.markdown-language-features"
+	},
 }
