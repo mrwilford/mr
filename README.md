@@ -1,6 +1,6 @@
 # What is mr?
 
-mr is a Javascript and Google Script library that aims to simplify the process of writing apps that interface with Google Drive.
+mr is a WORK-IN-PROGRESS Javascript and Google Script library that aims to simplify the process of writing apps that interface with Google Drive.
 
 # Contributors
 
