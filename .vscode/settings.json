@@ -10,7 +10,11 @@
 	"editor.acceptSuggestionOnCommitCharacter": false,
 	"editor.parameterHints.enabled": false,
 	"editor.suggestOnTriggerCharacters": false,
-	"editor.quickSuggestions": false,
+	"editor.quickSuggestions": {
+		"comments": "off",
+		"strings": "off",
+		"other": "off"
+	},
 	"editor.codeActionsOnSave": [
 		"source.addMissingImports",
 	],

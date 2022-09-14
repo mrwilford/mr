@@ -1,34 +1,37 @@
-mrCreate(this).extendPrototypes();
+mr(globalThis);//TODO: make extendPrototypes() optional
 
-const DateTime = luxon.DateTime;
-const Duration = luxon.Duration;
+const ssId           = '1vs1PyOJipA20xyrWoUJgG660XP6b5nWoVvexfLRusNk';
+const ssUrl          = 'https://docs.google.com/spreadsheets/d/1vs1PyOJipA20xyrWoUJgG660XP6b5nWoVvexfLRusNk/edit#gid=0';
+const docId          = '1ceSXVh-WSif9xl1gHdPRHHncBelXuNtYAE4VTGO02fM';
+const presentationId = '1sf2J-i4PwB2UEvu-u3sNDfP6sy602yQO70ZXbuO4vUs';
+const siteId         = '12K8t2sRhJ-amECwTYVCmPODAlITwmZ3L';
+const folderId       = '0BwzP1xBdcn0Nb2s5bWZkVFQxVGc';
+const fileId         = '1vs1PyOJipA20xyrWoUJgG660XP6b5nWoVvexfLRusNk';
+const jpgId          = '1a7wel_ObbRAXbug9Ri9wxF6FOeAWxiJs';
+const triggerId      = '4616076814456607965';
 
-const isFunc = f => !!(f && {}.toString.call(f) == '[object Function]');
-const isArr = a => !!(a && 'object'==typeof a && Array===a.constructor);
+function moo(){
+  log(is(triggerId, $Id));
+  // log([ 1,2,3,4 ].loop(x => x%2 ? x : BREAK));
+  // log({ moo:'cow', fu:'bar' }.loop(x => 4==x.length ? CONTINUE : x));
+};//moo
 
 function T(id, result, expected){
   ++T.state.numTest;
-  const strResult = isFunc(result) ? result : (isArr(result) ? JSON.stringify(result) : result);
-  const strExpect = isFunc(expected) ? expected : (isArr(expected) ? JSON.stringify(expected) : expected);
-  const strDuration = ' ['+mr.duration({name:'T'}).as('ms')+'ms]';
+  const strResult = is(result, Function) ? result : (is(result, Array) ? JSON.stringify(result) : result);
+  const strExpect = is(expected, Function) ? expected : (is(expected, Array) ? JSON.stringify(expected) : expected);
+  const strDuration = '';//' ['+mr.duration({name:'T'}).as('ms')+'ms]';
   if(strResult !== strExpect){
-    mr.log.warn('❌ FAILED: ' + id + ': ' + strResult + ' =!= ' + strExpect + strDuration);
+    log.warn('❌ FAILED: ' + id + ': ' + strResult + ' =!= ' + strExpect + strDuration);
     return;
   }//if
   ++T.state.numPass;
-  mr.log('✅ PASSED: ' + id + ': ' + strExpect + strDuration);
+  log('✅ PASSED: ' + id + ': ' + strExpect + strDuration);
 }//T
 T.state = { numTest: 0, numPass: 0 };
 
-const ssId = '1vs1PyOJipA20xyrWoUJgG660XP6b5nWoVvexfLRusNk';
-const docId = '1ceSXVh-WSif9xl1gHdPRHHncBelXuNtYAE4VTGO02fM';
-const slideId = '1sf2J-i4PwB2UEvu-u3sNDfP6sy602yQO70ZXbuO4vUs';
-const folderId = '0BwzP1xBdcn0Nb2s5bWZkVFQxVGc';
-const fileId = '1vs1PyOJipA20xyrWoUJgG660XP6b5nWoVvexfLRusNk';
-const jpgID = '1a7wel_ObbRAXbug9Ri9wxF6FOeAWxiJs';
-
 function testAll() {
-  mr.log('Start: '+mr.entry.time.toFormat('h:mm:ss.S'));
+  log('Start: '+Began.toLocaleString(DateTime.DATETIME_MED));
   const testIterator = {
     hasNext: () => true,
     next: () => {
@@ -47,32 +50,34 @@ function testAll() {
   };//testIterator
   {
     //------ TEST DESCRIPTION ------ TEST CODE ---------------------------- EXPECTED RESULT -----------
-    T('callstack.file'              ,mr.file                                ,'test');
-    T('callstack.caller'            ,mr.caller                              ,'testAll');
-    T('callstack.line'              ,mr.line                                ,'52');
-    T('is([3,5,7])'                 ,mr.is([3,5,7]).name                    ,mr.array.name);
-    T('is.prim'                     ,mr.is.prim(5)                          ,true);
-    T('!is.prim'                    ,mr.is.prim([])                         ,false);
-    T('is.fin'                      ,mr.is.fin(5)                           ,true);
-    T('!is.fin'                     ,mr.is.fin([])                          ,false);
-    T('is.num'                      ,mr.is.num(5)                           ,true);
-    T('!is.num'                     ,mr.is.num([])                          ,false);
-    T('is.obj'                      ,mr.is.obj({})                          ,true);
-    T('!is.obj'                     ,mr.is.obj(5)                           ,false);
-    T('is.err'                      ,mr.is.err(new Error('!'))              ,true);
-    T('is.err'                      ,mr.is.err({})                          ,false);
-    T('!is.err'                     ,mr.is.err(5)                           ,false);
-    T('is.arr'                      ,mr.is.arr([])                          ,true);
-    T('!is.arr'                     ,mr.is.arr(5)                           ,false);
-    T('is.str'                      ,mr.is.str('5')                         ,true);
-    T('is.str(new)'                 ,mr.is.str(new String(''))              ,true);
-    T('!is.str'                     ,mr.is.str({})                          ,false);
-    T('is.func'                     ,mr.is.func(function () { })            ,true);
-    T('is.func(=>)'                 ,mr.is.func(() => 1)                    ,true);
-    T('is.date'                     ,mr.is.date(new Date())                 ,true);
-    T('is.date(time)'               ,mr.is.date(Date.now())                 ,false);
-    T('is.obj.empty'                ,mr.is.obj.empty({})                    ,true);
-    T('!is.obj.empty'               ,mr.is.obj.empty({ a: 5 })              ,false);
+    // T('callstack.file'              ,file                                ,'test');
+    // T('callstack.caller'            ,caller                              ,'testAll');
+    // T('callstack.line'              ,line                                ,'52');
+    // T('is([3,5,7])'                 ,is([3,5,7]).name                    ,mr.array.name);
+    T('is.prim'                     ,is(5, Primitive)                       ,true);
+    T('is.prim'                     ,is(new Number(5), Primitive)           ,false);
+    T('!is.prim'                    ,is([], Primitive)                      ,false);
+    T('is.fin'                      ,is(5, Finite)                          ,true);
+    T('!is.fin'                     ,is([], Finite)                         ,false);
+    T('is.num'                      ,is(5, Number)                          ,true);
+    T('!is.num'                     ,is([], Number)                         ,false);
+    T('is.obj'                      ,is({}, Object)                         ,true);
+    T('!is.obj'                     ,is(5, Object)                          ,false);
+    T('is.err'                      ,is(new Error('!'), Error)              ,true);
+    T('is.err'                      ,is({}, Error)                          ,false);
+    T('!is.err'                     ,is(5, Error)                           ,false);
+    T('is.arr'                      ,is([], Array)                          ,true);
+    T('!is.arr'                     ,is(5, Array)                           ,false);
+    T('is.str'                      ,is('5', String)                        ,true);
+    T('is.str(new)'                 ,is(new String(''), String)             ,true);
+    T('!is.str'                     ,is({}, String)                         ,false);
+    T('is.func'                     ,is(function () { }, Function)          ,true);
+    T('is.func(=>)'                 ,is(() => 1, Function)                  ,true);
+    T('is.date'                     ,is(new Date(), Date)                   ,true);
+    T('is.date(time)'               ,is(Date.now(), Date)                   ,false);
+    // T('is.obj.empty'                ,is.obj.empty({})                    ,true);
+    // T('!is.obj.empty'               ,is.obj.empty({ a: 5 })              ,false);
+    return;
     T('numbers([3,x5a])'            ,JSON.stringify(mr.numbers([3,'x5a']))  ,[3,5]);
     T('numbers(Infinity)'           ,JSON.stringify(mr.numbers(Infinity))   ,[]);
     T('boolean(true)'               ,mr.boolean('true')                     ,true);
@@ -128,7 +133,7 @@ function testAll() {
     T('num.rng(int)'                ,mr.num.rng({int:true})                 ,35);
     T('num.rng(exclude)'            ,mr.num.rng({int:true,exclude:[49]})    ,29);
     //DRIVE
-    const ss = mr.server.drive(ssId).read();
+    const ss = mr.drive(ssId).read();
     T('ss.values.sheet8.dog'        ,ss.values.sheet8.dog                   ,['woof','bark','bowwow','wimper']);
     T('ss.sheets.sheet2.frozenRows' ,ss.sheets.sheet2.frozenRows            ,1);
     T('ss.sheets.sheet2.headings[1]',ss.sheets.sheet2.headings[1]           ,ss.headings.sheet2[1]);
@@ -145,24 +150,24 @@ function testAll() {
 
 function testRef(){
 
-  const ss = mr.server.drive(ssId);
+  const ss = mr.drive(ssId);
   mr.profile(() => ss.read(),'ss.read');
 
-  mr.log('num sheets: '+ss.sheets.length);
-  mr.log('sheet2 index: '+ss.sheets.sheet2.index);
-  mr.log('sheet2 headings: '+ss.sheets.sheet2.headings);
-  mr.log(JSON.stringify(ss.values.sheet2['D']));
+  log('num sheets: '+ss.sheets.length);
+  log('sheet2 index: '+ss.sheets.sheet2.index);
+  log('sheet2 headings: '+ss.sheets.sheet2.headings);
+  log(JSON.stringify(ss.values.sheet2['D']));
   return;
 
-  mr.log(JSON.stringify(ss.values.sheet8.dog));
-  //mr.log(JSON.stringify(ss.values.sheet8.dog.filter(x => 4==x.length)));
-  //mr.log(JSON.stringify(ss.values.sheet8.dog.loop(i => 4==i.elem.length ? i.elem : loop.continue).elems));
+  log(JSON.stringify(ss.values.sheet8.dog));
+  //log(JSON.stringify(ss.values.sheet8.dog.filter(x => 4==x.length)));
+  //log(JSON.stringify(ss.values.sheet8.dog.loop(i => 4==i.elem.length ? i.elem : loop.continue).elems));
 
-  mr.log(JSON.stringify(ss.values.sheet8.dog.loop(i => 
+  log(JSON.stringify(ss.values.sheet8.dog.loop(i => 
     ss.values.sheet9.numLetters.match(ss.values.sheet9.sound, i.elem)
   ).elems));
 
-  mr.log(JSON.stringify(
+  log(JSON.stringify(
     ss.values.sheet9.numLetters.match(ss.values.sheet9.sound,ss.values.sheet8.dog)
   ));//log
 

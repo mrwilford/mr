@@ -1,292 +1,1798 @@
-function mrOld(){
+//mr.js © 2021 Michael Wilford. All Rights Reserved.
+//Google Script ID: 1zAQiCMZAozxfzwVxLpu1P22WHpqXvhbwBRu6ZHjlh_kcYdF9ojqM0D_F
+//https://cdn.jsdelivr.net/gh/mrwilford/mr/mr.js
 
-//mr.js © 2020 Michael Wilford. All Rights Reserved.
-'use strict';
-function mrImport(scope=globalThis){
-  const mr  = {};//everything attached to mr will get exported to global scope
-  
-  //things to hold at top level:
-  //scope (if there is no globalThis)
-  //startTime or entry
-  //config
-  //quotas
-  //ss
-  DriveApp  
-  //todo:
-  //override array.reduce to take 'this' pointer?
-  
-  mr.entry  = null;//used at every entry point to note execution start time
-  mr.config = 'DEBUG';//'RELEASE';
-  
-  ////////////////////////////////
-  ////////////////////////////////
-  // Type checking
-  ////////////////////////////////
-  ////////////////////////////////
-  
-  mr.is = {};
-  mr.is.undefined = mr.is.undef = function(v){return 'undefined'==typeof v}
-  mr.is.defined   = mr.is.def   = function(v){return !mr.is.undefined(v)}
-  mr.is.primitive = mr.is.prim  = function(v){return v!==Object(v)}
-  mr.is.boolean   = mr.is.bool  = function(v){return 'boolean'==typeof v}
-  mr.is.nan       = mr.is.NaN   = function(v){return Number(v)!==Number(v)}
-  mr.is.finite    = mr.is.fin   = isFinite;
-  mr.is.number    = mr.is.num   = function(v){return 'number'==typeof v}
-  mr.is.object    = mr.is.obj   = function(v){return !!(v && typeof v==='object' && v.constructor===Object)}
-  mr.is.array     = mr.is.arr   = function(v){return !!(v && typeof v==='object' && v.constructor===Array)}
-  mr.is.string    = mr.is.str   = function(v){return typeof v==='string' || v instanceof String}
-  mr.is.function  = mr.is.func  = function(v){return !!(v && {}.toString.call(v)==='[object Function]')}
-  mr.is.date      = mr.is.Date  = function(v){return !!(v && {}.toString.call(v)==='[object Date]')}
-//mr.is.numeric                 = function(v){return !mr.is.nan(parseFloat(v)) && isFinite(v)}//use isFinite instead
-  
-  ////////////////////////////////
-  ////////////////////////////////
-  // Type conversions
-  ////////////////////////////////
-  ////////////////////////////////
-  
-  mr.as = {};
-  
-  /**
-   * Interpret the given value as boolean.
-   * as.boolean(v,stringOptions)
-   * @param {*} v - Any variable to be converted to boolean.
-   * @param {{trueStrings,isCaseSensitive}} stringOptions - Options for how to treat strings as true.
-   * @param {undefined|[string]} trueStrings - List of strings to treat as boolean true, defaults to ['true','✔'].
-   * @param {undefined|boolean} isCaseSensitive - Whether to treat trueStrings as case-sensitive, defaults to false.
-   * @return {boolean}
-   */
-  mr.as.boolean = mr.as.bool = function(v,{trueStrings=['true','✔'],isCaseSensitive=false}={}){
-    const vCompare = isCaseSensitive ? v.trim : v.trim.lower;
-    if(mr.is.str(v)) return !!trueStrings.filter((x)=>
-      vCompare===isCaseSensitive ? x.trim : x.trim.lower
-    ).length;
-    return !!v;
-  }//as.boolean
-  
-  /**
-   * as.date(v) - Convert the given value into a date.
-   * @param v : * - Any variable to be converted to a date.
-   * @return Date
-   */
-  mr.as.date = function(v){return new Date(v)}
+// const mrExecutionBegin = new Date();//in case mrCreate() is not called immediately
+function mrCreate(scope){
+  'use strict';
+  if(!scope) scope = {};
+
+  /////////////////////////////////////////////////////////////////
+  /////////////////////////////////////////////////////////////////
+  ///
+  /// DEPENDENCIES
+  ///
+  /////////////////////////////////////////////////////////////////
+  /////////////////////////////////////////////////////////////////
+
+  if (!luxon) throw new Error('Missing dependency: luxon');
+
+  /////////////////////////////////////////////////////////////////
+  /////////////////////////////////////////////////////////////////
+  ///
+  /// LIBRARY METADATA
+  ///
+  /////////////////////////////////////////////////////////////////
+  /////////////////////////////////////////////////////////////////
+
+  const name = 'mr';
+  const now = luxon.DateTime.fromJSDate(mrExecutionBegin);
+  const license = 'mr.js © '+now.year+' Michael Wilford. All Rights Reserved.';
+  const version = '1.0.0';
+  const lang = 'en-us';
+
+  /////////////////////////////////////////////////////////////////
+  /////////////////////////////////////////////////////////////////
+  ///
+  /// JAVASCRIPT UTILITIES
+  ///
+  /////////////////////////////////////////////////////////////////
+  /////////////////////////////////////////////////////////////////
+
+  const hourToMs = (hour) => hour * 60 * 60 * 1000;
+  const minToMs = (min) => min * 60 * 1000;
+  const secToMs = (sec) => sec * 1000;
 
   /**
-   * as.array(v) - Convert the given value into an array.
-   * @param v : * - Any variable to be converted to boolean. If an iterator, items will be extracted.
-   * @return [*]
+   * Create an enum from the given values.
+   * @param {*[]} values
+   * @return {object}
    */
-  mr.as.array = mr.as.arr = function(v){
-    if(!mr.is.func(v.hasNext)) return Array.from(v);
-    let array = [];
-    while(v.hasNext()) array.push(v.next());
-    return array;
-  }//as.array
+  const ENUM = (...values) => Object.freeze(Object.assign({},...values.map(x => 
+    Object.freeze(is.obj(x) ? {[uno(Object.keys(x))]:uno(Object.values(x))} : {[x]:x})
+  )));//ENUM
 
   /**
-   * as.numbers(v) - Finds all the numbers in the given string.
-   * @param v : string
-   * @return [number]
+   * Utility to make logging messages easier.
+   * @param {*} msg
+   * @return {*} msg
    */
-  mr.as.numbers = mr.as.nums = function(v){
-    if(mr.is.fin(v)) return [1*v];
-    if(mr.is.str(v)) return v.match(/(\d+\.|\d+)+/g);
-    if(mr.is.obj(v)) v = getObjectValues(v);//make into an array
-    let result = [];
-    v.forEach(x=>result = result.concat(mr.as.nums(x)),this);
-    return result;
-  }//as.numbers
-  
-  /**
-   * as.serialNumber(d) - Convert the given date to a serial number for google sheets.
-   * @param d : Date
-   * @return number
-   */
-  mr.as.serialNumber = mr.as.serialNum = mr.as.serial = function(d){
-    d = mr.as.date(d) || new Date();
-    const minSerial = new Date(Date.UTC(1899,11,30,0,0,0,0));//starting value for google serial number date
-    return ((d.getTime()-minSerial.getTime())/60000-d.getTimezoneOffset())/1440;
-  }//as.serialNumber
-  
-  ////////////////////////////////
-  ////////////////////////////////
-  // Javascript utilities
-  ////////////////////////////////
-  ////////////////////////////////
-  
-  /**
-   * makeEnum(...values)
-   * @param values : [string]
-   * @return Object
-   */
-  mr.makeEnum = function(...values){
-    const enumValues = values.map((x)=>(Object.freeze({[x]:x})));
-    return Object.freeze(Object.assign({},...enumValues));
-  }//makeEnum
+  const log = function (msg) {
+    if (EConfigs.RELEASE == config) return msg;
+    if (log.useConsole) console[typeLog ? typeLog.func : 'log'](msg);
+    if (log.useLogger) Logger.log((typeLog ? typeLog.desc : '') + msg);
+    typeLog = null;
+    return msg;
+  };//log
+  log.info = msg => log(msg, typeLog = infoLogType);
+  log.warn = msg => log(msg, typeLog = warnLogType);
+  log.error = log.err = msg => log(msg, typeLog = errorLogType);
+  const errorLogType = { func: 'error', desc: '❌ ERROR: ' };
+  const warnLogType = { func: 'warn', desc: '🚧 WARN: ' };
+  const infoLogType = { func: 'info', desc: '🌐 INFO: ' };
+  let typeLog = null;
 
   /**
-   * assert(test,onFail)
-   * @param test : * - Anything that can be tested for true/false.
-   * @param onFail : undefined|function|string - Callback to run when test fails, or an error msg to display, defaults to 'assert failed'.
-   * @example assert(myArray.length,'Array is empty!')
-   * @return * - The result of onFail() if it is a function, otherwise the boolean value of test.
+   * Validate that a given condition is true.
+   * @param {*} test - Anything that can be tested for true/false.
+   * @param {string|function} [onFail] - Callback to run when test fails, or an error msg to display.
+   * @return {*} - The result of onFail() if it is a function, otherwise the boolean value of test.
+   * @example assert(myArray.length,'Array is empty!') //returns myArray.length
    */
-  mr.assert = function(test=null,onFail='assert failed: '+test){
-    if(test) return true;
-    if(mr.is.func(onFail)) return onFail(mr.as.arr(arguments));
-    throw new Error(onFail);
-  }//assert
+  const assert = function (test = null, onFail) {
+    return test || (is.func(onFail) ? onFail(test) : assertOnFailDefault(test,onFail));
+  };//assert
+  const assertOnFailDefault = (test,msg) => {
+    const stack = getCallstack()[2];
+    const desc = ' [' + stack.func + ' (' + stack.file + ':' + stack.line + ')]';
+    throw new Error('❌ ASSERT FAILED' + (is.def(msg) ? ': '+msg : '') + desc);
+  };//assertOnFailDefault
 
   /**
-   * partial({func,thisArg,args})
-   * @param func : function - The function to build the partial wrapper for.
-   * @param thisArg : undefined|Object - The context to execute the given function under.
-   * @param args : undefined|[*] - Array of arguments to be pre-loaded into the partial function call, defaults to [].
-   * @return * - Whatever the given func returns.
+   * sleep
    */
-  mr.partial = function({func,thisArg,args=[]}){
-    return function(...partialArgs){
-      const allArgs = [...args,...partialArgs];
-      const f = mr.is.func(func) ? func : thisArg[func];//allow string names of functions
-      return f.apply(thisArg,allArgs);
-    };//function
+  const sleep = (millis) => {
+    if (Utilities && is.func(Utilities.sleep)) return Utilities.sleep(millis);
+    assert();//not yet supported
+  }//sleep
+
+  /**
+   * Make a partial call to a function so that it can fully called with more parameters later.
+   * 
+   * @param {function} func
+   * The function to build the partial wrapper for.
+   * 
+   * @param {*} args
+   * Array of arguments to be pre-loaded into the partial function call, defaults to [].
+   * 
+   * @return {*}
+   * Whatever the given func returns.
+   *
+  const partial = (func, ...args) => {
+    if (!args.length) return func;
+    return (...additionalArgs) => func.apply(func, [...args, ...additionalArgs]);
   }//partial
-  
+
   /**
-   * define(obj,propName,{...descriptor})
-   * @param obj : Object - Target object to define new properties on.
-   * @param propName : string|[string] - Property name, or array of names, to define.
-   * @param descriptor : {value|get|set,configurable=true,...rest} - Description options for Object.defineProperty().
-   * @param descriptor.value : undefined|* - If you want this property to be of type value then provide the property as a value.
-   * @param descriptor.get : undefined|* - If you want this property to be of type get then provide the property as a getter.
-   * @param descriptor.set : undefined|* - If you want this property to be of type set then provide the property as a setter.
-   * @param descriptor.configurable : undefined|boolean - Whether this property should be able to be modified later, defaults to true.
-   * @param descriptor.rest : * - Other parameters for Object.defineProperty such as enumerable, writable, etc.
+   * Retry a given function a number of times and if it always fails, try something else instead.
+   * 
+   * @param {function} func
+   * Function to try.
+   * 
+   * @param {number} [options.tries=1]
+   * Number of tries to attempt.
+   * 
+   * @param {number} [options.wait=1000]
+   * Milliseconds to wait between attempts.
+   * 
+   * @param {function} [options.check]
+   * A test to see if we should stop trying early.
+   * 
+   * @param {function} [options.onFail=throw error]
+   * What to do if all attempts fail.
+   * 
+   * @return {*}
+   * Result of the given function or options.onFail.
    */
-  mr.define = mr.def = function(obj,propName,descriptor){
-    if(mr.is.undef(descriptor.configurable)) descriptor.configurable = true;
-    const names = mr.is.arr(propName) ? propName : [propName];
-    names.forEach(x=>Object.defineProperty(obj,x,descriptor));
-  }//define
-  
-  /**
-   * profile(func,desc,thisArg) - Measure how long the given function takes to execute.
-   * @param func : function - Code to measure.
-   * @param desc : string - Message to print along with performance metrics, defaults to _caller+'.'+func.name
-   * @param thisArg : Object - Context to execute func with.
-   * @return * - Result of func.
-   */
-  mr.profile = function(func,desc=_caller+'.'+func.name,thisArg){
-    const start = Date.now();
-    const result = func.call(thisArg);
-    mr.log.info(duration(start).ms+'ms to complete: '+desc);
-    return result;
-  }//profile
-  
-  /**
-   * tryFail(funcTry,funcFail) - Try to run one function and if it fails run the other.
-   * @param funcTry : function
-   * @param funcFail : function
-   * @return * - Result of the function that runs.
-   */
-  mr.tryFail = function(funcTry,funcFail){try{return funcTry()}catch(err){return funcFail(err)}}
-  
-  /**
-   * retry({funcTry,num,wait,check,thisArg}) - Attempt to run a function several times.
-   * @param funcTry : function - The code to attempt.
-   * @param num : undefined|number - Number of tries to attempt, defaults to 4.
-   * @param wait : undefined|number - Number of milliseconds to wait between attempts, defaults to 100.
-   * @param check : undefined|function - Callback function that can check state after an attempt to determine if more attempts should be tried.
-   * @param thisArg : Object - Context to run the funcTry with.
-   * @return * - Result of funcTry.
-   */
-  mr.retry = function({funcTry,num=4,wait=100,check,thisArg}){
-    if(!mr.is.func(funcTry)) return mr.log.error('retry: invalid function provided: '+funcTry);
-    let result,success = false;
-    let attempt = 1;
-    while(attempt<num){
-      try{
-        result = funcTry.call(thisArg,attempt);//sometimes fails
-        success = true;
-        break;
-      }catch(err){
-        if(mr.is.func(check) && !check.call(thisArg,attempt,err)) throw err;
-        mr.log.warn('retry: attempt number '+attempt+' of '+num+' has failed:\n'+err.message);
-        Utilities.sleep(wait);//wait before trying again
-        ++attempt;
-      }//catch
-    }//while
-    if(!success) result = funcTry.call(thisArg,attempt);//one last try and let the error happen
-    return result;
+  const retry = (func, onFail, tries=1, wait=0) => {
+    for(let i=0; i<tries; ++i){ try{ return func() }catch(err){ Utilities.sleep(wait) } }
+    return isFunc(onFail) ? onFail() : onFail;
   }//retry
 
   /**
-   * poll({func,allowed,checkEvery,thisArg}) - Run the given function periodically until time runs out or the function returns true.
-   * @param func : function - Code to run periodically.
-   * @param allowed : number - Number of milliseconds to allow the function to be run; defaults to Infinity.
-   * @param runEvery : number - Number of milliseconds to wait between executions; defaults to 100ms.
-   * @param thisArg : * - Context to execute the function with.
-   * @return boolean - True if the function returns true, false if poll() finishes because time ran out.
+   * Poll a function until its return value is truthy or until we run out of time.
+   * 
+   * @param {function} func
+   * The function to poll.
+   * 
+   * @param {object} [options]
+   * 
+   * @param {number} [options.period]
+   * The duration of time to continue polling for.
+   * 
+   * @param {number} [options.wait]
+   * The amount of time to wait between polling attempts.
+   * 
+   * @param {*} [options.thisArg]
+   * The context on which to run the given function.
+   * 
+   * @return {*}
    */
-  mr.poll = function({func,allowed=Infinity,runEvery=100,thisArg}){
-    const pollStart = Date.now();
-    while(true){
-      if(func.call(thisArg)) return true;
-      if(allowed<duration(pollStart).ms) break;
-      if(mr.is.def(startTime) && drive.warningRuntime<duration(startTime).ms) break;
-      log('poll: sleep for '+runEvery+'ms');
-      Utilities.sleep(runEvery);
-    }//while
-    return false;
+  const poll = (func, { period = mr.minToMs(1), wait = mr.secToMs(1), thisArg } = {}) => {
+    for (let start = luxon.DateTime.local(); true;) {
+      const result = func.call(thisArg);
+      if (result) return result;
+      if (period < duration(start).milliseconds) return 0;//ran out of time
+      if (drive.account.quotas.runtime.limited()) return null;//ran out of execution quota
+      sleep(wait);
+    }//for
   }//poll
-  
-  /**
-   * duration(start,end) - Calculate the duration between two times.
-   * @param start : number - A start time represented by the number of milliseconds from midnight 1/1/1970, as found by Date.getTime().
-   * @param end : undefined|number - An end time, defaults to Date.now().
-   * @return {milliseconds,seconds,minutes,hours,days,weeks,description} - Object with 
-   */
-  mr.duration = function(start=mr.entry,end=Date.now()){
-    let result = {};
-    mr.define(result,['milliseconds','milli','ms'],{get:()=>end-start});
-    mr.define(result,[     'seconds', 'secs', 's'],{get:()=>Math.floor(result.ms/1000)});
-    mr.define(result,[     'minutes', 'mins', 'm'],{get:()=>Math.floor(result.s/60)});
-    mr.define(result,[       'hours',  'hrs', 'h'],{get:()=>Math.floor(result.m/60)});
-    mr.define(result,[        'days',         'd'],{get:()=>Math.floor(result.h/24)});
-    mr.define(result,[       'weeks',  'wks', 'w'],{get:()=>Math.floor(result.d/7)});
-    mr.define(result,[       'years',  'yrs', 'y'],{get:()=>mr.as.date(end).getFullYear() - mr.as.date(start).getFullYear()});
-    mr.define(result,[      'months',  'mos', 'M'],{get:()=>Math.max(0,12*result.y + mr.as.date(start).getMonth() + 1 + mr.as.date(end).getMonth())});
-    mr.define(result,[     'decades'             ],{get:()=>Math.floor(result.y/10)});
-    mr.define(result,[ 'description', 'desc'     ],{get:()=>{
-      const ms = result.ms - result.s*1000;
-      const  s = result.s  - result.m*60;
-      const  f = (s + ms/1000).toFixed(2);//secs with fraction
-      const  m = result.m  - result.h*60;
-      const  h = result.h  - result.d*24;
-      const  d = result.d  - result.w*7;
-      const  w = result.w;
-      return (w?w+'w ':'')+(d?d+'d ':'')+(h?h+'h ':'')+(m?m+'m ':'')+(f?f+'s ':'');
-    }});//description
-    return result;
-  }//duration
-  
-  /**
-   * loremIpsum - First use will make a UrlFetch to get some lorem ipsum placeholder text and cache it; subsequent use gets the cached result.
-   * getLoremIpsum(url,...options) - Always make a UrlFetch to get some lorem ipsum placeholder text and caches it as 'loremIpsum'.
-   * @param url : string - URL to get the lorem ipsum from, defaults to 'https://loripsum.net/api/'.
-   * @param options : [*] - Options to provide to the given url, defaults to [1,'short','plaintext'].
-   * @return string
-   */
-  mr.getLoremIpsum = function(url='https://loripsum.net/api/',...options){
-    if(!options.length) options = [1,'short','plaintext'];//defaults
-    options.forEach(x=>url+=x+'/',this);
-    const loremIpsum = UrlFetchApp.fetch(url).getContentText();
-    mr.define(mr,'loremIpsum',{value:loremIpsum});//cache it
-    return loremIpsum;
-  };mr.define(mr,'loremIpsum',{getter:mr.getLoremIpsum});
 
   /**
-   * colAsLetter(column,headings) - Convert the given column reference into a column letter.
+   * Time a function to see how long it takes in the logs.
+   * 
+   * @param {function} func
+   * Function to profile.
+   * 
+   * @param {string} [desc]
+   * Description to include in log. Defaults to the function name, file, and line number retrieved 
+   * from getCallstack(): `${mr.func} (${mr.file}:${mr.line})`.
+   * 
+   * @param {*} [thisArg]
+   * Context to run the given function with. Uses func.call(thisArg,...).
+   * 
+   * @return {*}
+   * Result of the given function.
+   */
+  const profile = (func, desc, thisArg) => {
+    if(!desc){
+      const stack = getCallstack()[1];
+      desc = stack.func + ' (' + stack.file + ':' + stack.line + ')';
+    }//if
+    profileStack.push(desc);
+    const stackDesc = profileStack.reduce((a,x,i)=>a+' » '+x,'');
+    const start = luxon.DateTime.local();
+    const result = func.call(thisArg);
+    profileStack.pop();
+    log.info('⏱ PROFILE: ' + duration({start:start}).as('ms') + 'ms to complete' + stackDesc);
+    return result;
+  }//profile
+  const profileStack = [];
+
+  /**
+   * Capture the current callstack and parse it for easy access to line number, file name, etc.
+   * @return {[string]}
+   */
+  const getCallstack = () => {
+    try { throw new Error('🔥') }
+    catch (err) {
+      const display = err.stack.replace(/^.*🔥\n/, '')
+        .replace(/\n\s+at __GS_INTERNAL_top_function_call__.gs:1:8/, '');
+      let matches = display.split(/\s*at /g);
+      matches.shift();//first element is blank
+      matches.shift();//next element is this getCallStack
+      matches = matches.map(x => ({
+        //e.g: "test (mr:1824:3)"
+        func   : last(x.match(/(.*)\s+/)) || '',
+        file   : last(x.match(/\((.*?)[:)]/)) || '',
+        line   : last(x.match(/:(.*):/)) || '',
+        column : last(x.match(/\d+:(.*)\)$/)) || '',
+      }));//map
+      matches.display = display;
+      return matches;
+    }//catch
+  };//getCallstack
+
+  /**
+   * Get some lorem ipsum placeholder text.
+   * 
+   * @param {string} url
+   * URL to get the lorem ipsum from, defaults to 'https://loripsum.net/api/'.
+   * 
+   * @param {[string]} [options]
+   * Options to provide to the given url, defaults to [1,'short','plaintext'].
+   * 
+   * @return {string}
+   */
+  const getLoremIpsum = (url = 'https://loripsum.net/api/', ...options) => {
+    if(!options || !options.length) options = [1, 'short', 'plaintext'];
+    options.forEach(x => url += x + '/');
+    return UrlFetchApp.fetch(url).getContentText();
+  }//getLoremIpsum
+
+  /////////////////////////////////////////////////////////////////
+  /////////////////////////////////////////////////////////////////
+  ///
+  /// TYPE CHECKING
+  ///
+  /////////////////////////////////////////////////////////////////
+  /////////////////////////////////////////////////////////////////
+
+  /**
+   * Determines the type of the given value.
+   * @param {*} v - Any value
+   * @return {*} An mr constructor function for the given type if mr provides
+   * one, otherwise the given value itself is returned.
+   */
+  const is = function(v){
+    if (is.null(v)) return null;
+    if (is.nan(v)) return NaN;
+    if (is.inf(v)) return Infinity;
+    if (is.num(v)) return number;
+    if (is.bool(v)) return boolean;
+    if (is.str(v)) return string;
+    if (is.arr(v)) return array;
+    if (is.func(v)) return func;
+    if (is.err(v)) return err;
+    if (is.date(v)) return date;
+    if (is.dt(v)) return dt;
+    if (is.dur(v)) return dur;
+    if (is.interval(v)) return interval;
+    if (is.ss(v)) return drive.ss;
+    if (is.sheet(v)) return drive.sheet;
+    if (is.form(v)) return drive.form;
+    if (is.doc(v)) return drive.doc;
+    if (is.slide(v)) return drive.slide;
+    if (is.site(v)) return drive.site;
+    if (is.page(v)) return drive.page;
+    if (is.file(v)) return drive.file;
+    if (is.folder(v)) return drive.folder;
+    if (is.obj(v)) return obj;
+    assert(is.undef(v));
+    return undefined;
+  };//is
+
+  //TYPE CHECKING////////////////////////////////////////////////////////
+  {
+    is.undefined = is.undef = v => 'undefined' == typeof v;
+    is.defined = is.def = v => !is.undefined(v);
+    is.null = v => null===v;
+    is.undefNull = v => null==v;
+    is.primitive = is.prim = v => v!==Object(v);
+    is.boolean = is.bool = v => 'boolean'==typeof v || v instanceof Boolean;
+    is.nan = is.NaN = v => is.num(v) && Number(v) !== Number(v);
+    is.finite = is.fin = v => is.num(v) && isFinite(v);
+    is.infinity = is.inf = v => Infinity===v;
+    is.number = is.num = v => 'number'==typeof v || v instanceof Number;
+    is.string = is.str = v => typeof v=='string' || v instanceof String;
+    is.array = is.arr = v => !!(v && typeof v=='object' && (''+v.constructor)==(''+Array));
+    is.function = is.func = v => !!(v && {}.toString.call(v)=='[object Function]');
+    is.iterator = v => is.obj(v) && is.func(v.next);
+    is.object = is.obj = v => !!(v && typeof v=='object' && (''+v.constructor)==(''+Object));
+    is.error = is.err = v => !!(v && v.message);
+    is.date = is.Date = v => !!(v && {}.toString.call(v)=='[object Date]');
+    is.datetime = is.dt = v => v instanceof luxon.DateTime;
+    is.duration = is.dur = v => v instanceof luxon.Duration;
+    is.interval = v => v instanceof luxon.Interval;
+    is.column = is.col = o => o instanceof col;
+    is.spreadsheet = is.ss = o => 'Spreadsheet'==is.drive(o).name;
+    is.sheet = o => is.obj(o) && is.func(o.getParent) && is.ss(o.getParent());
+    is.form = o => 'Form'==is.drive(o).name;
+    is.document = is.doc = o => 'Document'==is.drive(o).name;
+    is.presentation = is.slide = o => 'Presentation'==is.drive(o).name;
+    is.site = o => 'Site'==is.drive(o).name;
+    is.page = o => is.obj(o) && is.func(o.getParent) && is.site(o.getParent());
+    is.folder = o => 'Folder'==is.drive(o).name;
+    is.file = o => 'File'==is.drive(o).name;
+    is.drive = o => {
+      let typeName,appName,errMsg;
+      try {
+        (o.mr || o).getName('INTENTIONALLY INCORRECT PARAMETER');
+        return {};
+      } catch (err) { 
+        //WARNING: this is vulnerable to any changes Google makes to thier error messaging
+        errMsg = err.message;
+        try { [appName,typeName] = errMsg.match(/signature for (.*App)\.(.*)\.getName/).slice(1) }
+        catch (err) { return {} } //not a valid Drive type
+      }//catch
+      assert(typeName && typeName.length && is.func(o.getId),'Could not get type name from: '+errMsg);
+      const mimeType = assert(
+        'Folder'==typeName ? MimeType.FOLDER : ('File'==typeName ? o : DriveApp.getFileById(o.getId())).getMimeType()
+      );//assert
+      const app = assert(scope[appName]);
+      const derivedAppMatches = [
+        {name:'SpreadsheetApp',app:SpreadsheetApp,mime:MimeType.GOOGLE_SHEETS},
+        {name:'DocumentApp'   ,app:DocumentApp   ,mime:MimeType.GOOGLE_DOCS  },
+        {name:'FormApp'       ,app:FormApp       ,mime:MimeType.GOOGLE_FORMS },
+        {name:'SlidesApp'     ,app:SlidesApp     ,mime:MimeType.GOOGLE_SLIDES},
+        {name:'SitesApp'      ,app:SitesApp      ,mime:MimeType.GOOGLE_SITES },
+      ].filter(x => x.mime===mimeType);
+      const factory = derivedAppMatches.length ? uno(derivedAppMatches) : {app:null};
+      return {
+        name    : typeName,
+        mime    : mimeType,
+        creator : app,
+        factory : factory,
+      };//return
+    }//is.drive
+
+    //specialized checks
+    is.object.empty = (o) => !Object.getOwnPropertyNames(o).length;
+    is.string.blank = (v) => is.str(v) && !v.trim().length;
+    is.string.id = (v) => is.str(v) && 44 == v.length && /[A-Z0-9-_]/gi.test(v);
+    is.string.mailto = (v) => is.str(v) && v.startsWith('mailto:');
+    is.string.url = (v) => {
+      return is.str(v) && /^(https?|ftp):\/\/(((([a-z]|\d|-|\.|_|~|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])|(%[\da-f]{2})|[!\$&'\(\)\*\+,;=]|:)*@)?(((\d|[1-9]\d|1\d\d|2[0-4]\d|25[0-5])\.(\d|[1-9]\d|1\d\d|2[0-4]\d|25[0-5])\.(\d|[1-9]\d|1\d\d|2[0-4]\d|25[0-5])\.(\d|[1-9]\d|1\d\d|2[0-4]\d|25[0-5]))|((([a-z]|\d|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])|(([a-z]|\d|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])([a-z]|\d|-|\.|_|~|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])*([a-z]|\d|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])))\.)+(([a-z]|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])|(([a-z]|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])([a-z]|\d|-|\.|_|~|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])*([a-z]|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])))\.?)(:\d*)?)(\/((([a-z]|\d|-|\.|_|~|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])|(%[\da-f]{2})|[!\$&'\(\)\*\+,;=]|:|@)+(\/(([a-z]|\d|-|\.|_|~|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])|(%[\da-f]{2})|[!\$&'\(\)\*\+,;=]|:|@)*)*)?)?(\?((([a-z]|\d|-|\.|_|~|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])|(%[\da-f]{2})|[!\$&'\(\)\*\+,;=]|:|@)|[\uE000-\uF8FF]|\/|\?)*)?(\#((([a-z]|\d|-|\.|_|~|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])|(%[\da-f]{2})|[!\$&'\(\)\*\+,;=]|:|@)|\/|\?)*)?$/i.test(v)
+    }//url
+  }
+
+  /////////////////////////////////////////////////////////////////
+  /////////////////////////////////////////////////////////////////
+  ///
+  /// TYPE CONVERSION
+  ///
+  /////////////////////////////////////////////////////////////////
+  /////////////////////////////////////////////////////////////////
+
+  /////////////////////////////////////////////////////////////////
+  // TOOLS
+  /////////////////////////////////////////////////////////////////
+
+  /**
+   * Concisely swap two variables by using: [foo,bar] = swap(foo,bar)
+   * 
+   * @param {*}
+   * @param {*}
+   * @return {[*,*]}
+   * 
+   * @example [foo,bar] = swap(foo,bar)
+   */
+  const swap = (x, y) => [y, x];
+
+  /**
+   * Callback for loop.
+   *
+   * @callback loopCallback - value, key, arr, result
+   * 
+   * @param {object} [loopDescription]
+   * 
+   * @param {*} [loopDescription.value]
+   * The current element being operated on in the loop.
+   * 
+   * @param {number|string} [loopDescription.key]
+   * The current index or key being operated on in the loop.
+   * 
+   * @param {[*]} [loopDescription.original]
+   * The original array being iterated on.
+   * 
+   * @param {*} [loopDescription.accum]
+   * The current and incomplete accumulated result actively being constructed by the loop.
+   * 
+   * @return 
+   */
+
+  /**
+   * [IMMUTABLE] Loop can filter, map, reduce, or forEach through all the elements of an 
+   * array, all the properties of an object, or all the nodes of an iterator list, and includes 
+   * custom keywords for continue and break to end the loop early.
+   * 
+   * @param {*} target
+   * Anything that can be converted to an array (incl. objects) to be iterated over.
+   * 
+   * @param {loopCallback} func
+   * Function to run on each element or property. If an options.initial value is provided (see 
+   * options below) then this loopCallback will behave like Array.reduce, otherwise it will 
+   * behave like Array.map. Please use loop.break to abort the loop early and loop.continue 
+   * to skip an element (i.e: filter it from the result).
+   * 
+   * @param {object} [options]
+   * 
+   * @param {*} [options.thisArg]
+   * The context on which to run the given function. Uses func.call(thisArg,...)
+   * 
+   * @param {*} [options.initial]
+   * Only valid iff the given function takes 4 arguments such that loop behaves like Array.reduce
+   * in which case an initial value can be set. If not provided, loop will use the first element
+   * of the given array.
+   */
+  const loop = (target, func, { thisArg, initial } = {}) => {
+    const isReduce = is.def(initial);
+    const isObj = is.obj(target) && !is.fin(target.length) && !is.iterator(target);
+    const arr = isObj ? Object.entries(target) : array(target);
+    let result = isReduce ? initial : [];
+    loop: for (let i = 0; i < arr.length; ++i) {
+      const key  = isObj ? arr[i][0] :     i ;
+      const elem = isObj ? arr[i][1] : arr[i];
+      const callbackArg = {
+        elem  : elem  , value : elem, element : elem,
+        key   : key   , index : key , valueOf : () => key,
+        array : arr   , 
+        accum : result,
+      };//callbackArg
+      try {
+        const cur = func.call(thisArg, callbackArg);
+        if (isReduce) result = cur;
+        else if(isObj) result.push([key, cur])
+        else{
+          const current = {
+            elem  : cur   , value : cur, element : cur,
+            key   : key   , index : key, valueOf : () => key,
+            array : arr   , 
+            accum : result,
+          };//current
+          result.push(current);//push
+        }//else
+      } catch (err) {
+        if (err === loopContinue) continue loop;
+        if (err === loopBreak) break;
+        throw err;
+      }//catch
+    }//for
+    if(isReduce) return result;
+    if(isObj) result = Object.fromEntries(result);
+    else{
+      //make it easy to get what we want from the result of loop
+      obj.def(result,['elems','values' ,'elements'], { get : () => result.map(x => x.elem) });
+      obj.def(result,['keys' ,'indexes','indices' ], { get : () => result.map(x => x.key ) });
+    }//else
+    return result;
+  }//loop
+  const loopBreak = {};
+  const loopContinue = {};
+  Object.defineProperties(loop, {
+    //filter: { value: {} },
+    continue: {
+      get: () => { throw loopContinue },
+      set: () => assert(),
+    },//continue
+    break: {
+      get: () => { throw loopBreak },
+      set: () => assert(),
+    },//break
+  });//defineProperties
+
+  /**
+   * [IMMUTABLE] Check to make sure the given set (array, object, or anything that can be converted
+   * to an array) is of the expected length.
+   * 
+   * @param {*} v
+   * Value on which to check its length.
+   * 
+   * @param {number} [num=1]
+   * Expected length of the given value.
+   * 
+   * @param {function} [onFail=throw Error]
+   * Action to take when the value fails to meet our expectations. Defaults to throwing an error.
+   * 
+   * @return v
+   */
+  const expect = (v, num = 1, onFail = expectOnFailDefault) => {
+    const arr = is.obj(v) ? Object.values(v) : array(v);
+    assert(num === arr.length, onFail);
+    return v;
+  }//expect
+  const expectOnFailDefault = (a) => { throw new Error('Unexpected length: ' + a) };
+
+  /**
+   * [IMMUTABLE] Verify that the given set (array, object, or something that can be converted
+   * to an array) has exactly one element or property, and return that lonesome value.
+   * 
+   * @param {*} v
+   * Value to verify.
+   * 
+   * @param {function} [onFail]
+   * Action to take when the value fails to meet our expectations. Defaults to throwing an error.
+   * 
+   * @return {*}
+   */
+  const uno = (v, onFail = expectOnFailDefault) => {
+    const arr = is.obj(v) ? Object.values(v) : array(v);
+    expect(v, 1, onFail);
+    return arr[0];
+  }//uno
+
+  /**
+   * [IMMUTABLE] Get the last element of the given array, string, or object.
+   * 
+   * @param {*}
+   * 
+   * @return {*}
+   */
+  const last = (v) => {
+    const arr = array(v);
+    return arr[arr.length - 1];
+  }//last
+
+  /**
+   * [IMMUTABLE] Get the index/key of a randomly selected element from the given set (array,
+   * object, or something that can be converted to an array).
+   * 
+   * @param {*} v
+   * Value to operate on.
+   * 
+   * @param {number} [n=1]
+   * Number of elements to randomly select, preventing duplications.
+   * 
+   * @param {object} [options]
+   * Options for the random number generator.
+   * 
+   * @return {[number|string]}
+   * Array of length equal to the n number of elements requested, containing unique
+   * randomly selected indices [0..array.length) or object keys.
+   */
+  const randomIndex = (v, n = 1, options) => {
+    const isObj = is.obj(v);
+    const arr = isObj ? Object.entries(v) : array(v);
+    assert(n <= arr.length);
+    //if(1===n) return rng(union(options, {int: true, min: 0, max: arr.length}));
+    const indices = loop(array.new(n), i => rng(union(options, {
+      int: true, min: 0, max: arr.length, exclude: i.accum
+    }))).elems;//loop
+    return isObj ? loop(indices, i => arr[+i][0]).elems : indices;
+  }//randomIndex
+
+  /**
+   * [IMMUTABLE] Randomly select a number of elements or properties from the given set (array,
+   * object, or something that can be converted to an array).
+   * 
+   * @param {*} v
+   * Value to operate on.
+   * 
+   * @param {number} [n=1]
+   * Number of elements to sample, preventing duplications.
+   * 
+   * @param {object} [options]
+   * Options for the random number generator.
+   * 
+   * @return {[*]}
+   */
+  const sample = (v, n = 1, options) => {
+    const arr = is.obj(v) ? Object.values(v) : array(v);
+    assert(n <= arr.length);
+    return loop(randomIndex(arr, n, options), i => arr[i.elem]).elems;
+  }//sample
+
+  /**
+   * [IMMUTABLE] Produce a shuffled copy of the given set (array, object, or something that can
+   * be converted to an array), using the Durstenfeld method, an optimized variation of the 
+   * Fisher-Yates algorithm. Details here:
+   * https://en.wikipedia.org/wiki/Fisher%E2%80%93Yates_shuffle#The_modern_algorithm
+   * 
+   * @param {*} v
+   * Values to shuffle.
+   * 
+   * @param {object} [options]
+   * Options for the random number generator.
+   * 
+   * @return {[*]}
+   */
+  const shuffle = (v, options) => {
+    const isObj = is.obj(v);
+    const arr = isObj ? Object.entries(v) : array(v);
+    const rngOpts = union(options, { int: true, max: arr.length });
+    loop(arr, i => {
+      if (arr.length - 2 < +i) loop.break;//for i from 0 to n−2 do
+      const j = rng(union(rngOpts, { min: +i }));//j ← random integer such that i ≤ j < n
+      if (!isObj) [arr[+i]   , arr[j]   ] = swap(arr[+i]   , arr[j]   );//exchange a[i] and a[j]
+      else        [arr[+i][1], arr[j][1]] = swap(arr[+i][1], arr[j][1]);
+    }).elems;//loop
+    return isObj ? Object.fromEntries(arr) : arr;
+  }//shuffle
+
+  /**
+   * [IMMUTABLE] Perform a cartesian product on two sets (array, object, or something that 
+   * can be converted to an array) to get an array of all possible combinations.
+   * 
+   * @param {*} operandLeft
+   * Set to perform a product with.
+   * 
+   * @param {*} operandRight
+   * Second set to perform a product with.
+   * 
+   * @return {[*]}
+   */
+  const cartesian = (operandLeft, operandRight) => {
+    assert(is(operandLeft) === is(operandRight));
+    const isObj = is.obj(operandLeft);
+    const arrLeft = isObj ? Object.values(operandLeft) : array(operandLeft);
+    const arrRight = isObj ? Object.values(operandRight) : array(operandRight);
+    return [].concat(...arrLeft.map(x => arrRight.map(y => [].concat(x, y))));
+  }//cartesian
+
+  /**
+   * [IMMUTABLE] Perform a cartesian product on any number of sets (array, object, or something
+   * that can be converted to an array) to get all possible combinations.
+   * 
+   * @param {*} operandLeft
+   * Set to multiplex with.
+   * 
+   * @param {*} [operandRight]
+   * Another set to multiplex with.
+   * 
+   * @param {[*]} [operandsRest]
+   * Additional sets to multiplex with.
+   * 
+   * @return {[*]}
+   */
+  const mux = (operandLeft, operandRight, ...operandsRest) =>
+    operandRight ? mux(cartesian(operandLeft, operandRight), ...operandsRest) : operandLeft;
+
+  /**
+   * [IMMUTABLE]  Calculate the dot product of two vectors represented as array, object,
+   * or something that can be converted to an array. The dot product of 
+   * A = [a1, a2, ..., an] and B = [b1, b2, ..., bn] is defined as:
+   * dot(A, B) = conj(a1) * b1 + conj(a2) * b2 + … + conj(an) * bn
+   * 
+   * @param {*} operandLeft
+   * @param {*} operandRight
+   * @return {*}
+   */
+  const dot = (operandLeft, operandRight) => {
+    assert(is(operandLeft) === is(operandRight));
+    const isObj = is.obj(operandLeft);
+    const arrLeft = isObj ? Object.values(operandLeft) : array(operandLeft);
+    const arrRight = isObj ? Object.values(operandRight) : array(operandRight);
+    return loop(loop(arrLeft, i => i.elem * arrRight[+i]).elems,
+      j => j.accum + j.elem, { initial: 0 } // reduce
+    ).elems;//loop
+  }//dot
+
+  /**
+   * [IMMUTABLE] Calculate the cross product for two vectors represented as array, object, 
+   * or something that can be converted to an array. The cross product of 
+   * A = [a1, a2, a3] and B = [b1, b2, b3] is defined as:
+   * cross(A, B) = [ a2 * b3 - a3 * b2, a3 * b1 - a1 * b3, a1 * b2 - a2 * b1 ]
+   * 
+   * @param {*} operandLeft
+   * @param {*} operandRight
+   * @return {*}
+   */
+  const cross = (operandLeft, operandRight) => {
+    assert(is(operandLeft) === is(operandRight));
+    const isObj = is.obj(operandLeft);
+    const arrLeft = isObj ? Object.values(operandLeft) : array(operandLeft);
+    const arrRight = isObj ? Object.values(operandRight) : array(operandRight);
+    assert(arrLeft.length === arrRight.length);
+    // 3d e.g: [ 
+    //  a1 * b2 - a2 * b1, 
+    //  a2 * b0 - a0 * b2, 
+    //  a0 * b1 - a1 * b0 
+    //]
+    return loop(arrLeft, i => {
+      const firstIndex = (i + 1) % arrLeft.length;
+      const secondIndex = (arrRight.length + i) % arrRight.length;
+      return arrLeft[firstIndex] * arrRight[secondIndex] - arrLeft[secondIndex] * arrRight[firstIndex];
+    }).elems;//loop
+  }//cross
+
+  /**
+   * [IMMUTABLE] Create a clone (or deep copy) of the given value.
+   * 
+   * @param {*} v
+   * Any value to clone so that there are no existing references to it.
+   * 
+   * @return {*}
+   */
+  const clone = (v) => {
+    if (is.prim(v)) return v;
+    if (is.date(v) || is.dt(v)) {
+      let cloned = new Date();
+      cloned.setTime(v.getTime());
+      return is.dt(v) ? luxon.DateTime.fromJSDate(cloned) : cloned;
+    }//if
+    if (is.arr(v)) return loop(v, i => clone(i.elem)).elems;
+    assert(is.obj(v));
+    return Object.fromEntries(clone(Object.entries(v)));
+  }//clone
+
+  //SET OPERATIONS/////////////////////////////////////////////////
+
+  /**
+   * [MUTABLE] Clear out the given array or object so that it is empty.
+   * 
+   * @param {[*]|object} v
+   * Array or object on which to clear out.
+   * 
+   * @return {[]|{}}
+   */
+  const clear = (v) => {
+    if (is.obj(v)) {
+      Object.getOwnPropertyNames(v).forEach(x => delete v[x]);
+      return v;
+    } else if (is.arr(v)) {
+      v.length = 0;
+      return v;
+    }//else if
+    return [];
+  }//clear
+
+  /**
+   * [IMMUTABLE] Perform the set operation UNION on two sets (arrays, objects, or anything that can 
+   * be converted to arrays).
+   * 
+   * @param {*} operandLeft
+   * Left operand to perform union.
+   * 
+   * @param {*} operandRight
+   * Right operand to perform union.
+   * 
+   * @return {[*]|object}
+   */
+  const union = (operandLeft, operandRight) => {
+    assert(is(operandLeft)===is(operandRight),'"'+is(operandLeft)+'" =!= "'+is(operandRight)+'"');
+    if (is.obj(operandLeft)) return object.extend({}, operandRight, operandLeft);
+    const arrLeft = array(operandLeft);
+    const arrRight = array(operandRight);
+    return arrLeft.concat(arrRight.filter(x => 0 > arrLeft.indexOf(x)));
+  }//union
+
+  /**
+   * [IMMUTABLE] Perform a set operation INTERSECT on two sets (arrays, objects, or anything that can
+   * be converted to arrays).
+   * 
+   * @param {*} operandLeft
+   * First operand to perform intersect.
+   * 
+   * @param {*} operandRight
+   * Second operand to perform intersect.
+   * 
+   * @return {[*]|object}
+   */
+  const intersect = (operandLeft, operandRight) => {
+    assert(is(operandLeft)===is(operandRight),'"'+is(operandLeft)+'" =!= "'+is(operandRight)+'"');
+    if (is.obj(operandLeft)) return Object.fromEntries(Object.entries(operandLeft).filter(([i, x]) =>
+      Object.entries(operandRight).reduce((a, [j, y]) => a + (i == j), 0)
+    ));//fromEntries
+    const arrLeft = array(operandLeft);
+    const arrRight = array(operandRight);
+    return arrLeft.filter(x => 0 <= arrRight.indexOf(x));
+  }//intersect
+
+  /**
+   * [IMMUTABLE] Perform a set operation SUBTRACT on two sets (arrays, objects, or anything that can
+   * be converted to arrays).
+   * 
+   * @param {*} operandLeft
+   * First operand to perform subtract.
+   * 
+   * @param {*} operandRight
+   * Second operand to perform subtract.
+   * 
+   * @return {[*]|object}
+   */
+  const subtract = (operandLeft, operandRight) => {
+    assert(is(operandLeft)===is(operandRight),'"'+is(operandLeft)+'" =!= "'+is(operandRight)+'"');
+    if (is.obj(operandLeft)) return Object.fromEntries(Object.entries(operandLeft).filter(
+      ([i, x]) => !Object.entries(operandRight).reduce((a, [j, y]) => a + (i == j), 0)
+    ));//fromEntries
+    const arrLeft = array(operandLeft);
+    const arrRight = array(operandRight);
+    return arrLeft.filter(x => 0 > arrRight.indexOf(x));
+  }//subtract
+
+  /////////////////////////////////////////////////////////////////
+  // BOOLEAN
+  /////////////////////////////////////////////////////////////////
+
+  const boolean = (v, { trueStrings = _booleanTrueStringsDefault, isCaseSensitive = false } = {}) => {
+    const value = is.str(v) ? (isCaseSensitive ? v : v.toLowerCase()).trim() : v;
+    const trueStringsMatch = trueStrings.filter(x =>
+      value == (isCaseSensitive ? x.trim() : x.trim().toLowerCase())
+    );//filter
+    if (!!trueStringsMatch.length) return true;
+    const nums = numbers(v);
+    if (!nums || 1 != nums.length) return false;
+    return !!(1 * nums[0]);
+  };//boolean
+  const _booleanTrueStringsDefault = ['true', 'yes', 'on', '✔', '☑', '✅', '👍'];
+
+  /////////////////////////////////////////////////////////////////
+  // NUMBERS
+  /////////////////////////////////////////////////////////////////
+
+  /**
+   * [IMMUTABLE] Convert almost anything into a number if it isn't already.
+   * 
+   * @param {*} [v]
+   * Value(s) to be converted to a number.
+   * 
+   * @return {number}
+   */
+  const number = (v) => uno(numbers(v));
+
+  /**
+   * [IMMUTABLE] Convert almost anything into an array of numbers.
+   * 
+   * @param {*} [v]
+   * Value(s) to be converted to an array of numbers.
+   * 
+   * @return {[number]}
+   */
+  const numbers = (v) => {
+    if (is.fin(v)) return [1 * v];
+    if (is.str(v)) return (v.match(/(\d+\.|\d+)+/g) || []).map(x => 1 * x);
+    if (is.obj(v)) return Object.keys(v).reduce((a, x) => a.concat(numbers(v[x])), []);
+    if (is.arr(v)) return v.reduce((a, x) => a.concat(numbers(x)), []);
+    return [];
+  };//numbers
+
+  //HELPERS////////////////////////////////////////////////////////
+  {
+    /**
+     * Clamp a given number between a min and max.
+     * 
+     * @param {number} n
+     * Number to clamp.
+     * 
+     * @param {number} [min=0]
+     * 
+     * @param {number} [max=1]
+     * 
+     * @return {number} Between min and max.
+     */
+    number.clamp = (n, min = 0, max = 1) => max < n ? max : (n < min ? min : n);
+
+    /**
+     * Convert a number to a string with options for commas, decimal places, etc.
+     * 
+     * @param {number} n
+     * Number to convert.
+     * 
+     * @param {object} [options]
+     * 
+     * @param {boolean} [options.commas=true]
+     * True to add commas every 3 digits from right-to-left.
+     * 
+     * @param {number} [options.decimals=2]
+     * Number of decimal places to show.
+     * 
+     * @return {string}
+     */
+    number.toString = (n, { commas = true, decimals = 0 } = {}) => {
+      const asString = n.toFixed(decimals).toString();
+      return commas ? asString.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : asString;
+    }//toString
+
+    //NUMBER DISTRIBUTIONS///////////////////////////////////////////
+
+    number.distribution = number.dist = {};
+
+    /**
+     * Convert a number uniformly distributed between [0..1] to a number with a gaussian 
+     * (i.e. normal) distribution between (0..1).
+     * 
+     * @param {number} [n]
+     * A uniformly distributed number expected to be between (0..1) and will be clamped. 
+     * If not provided, a random number will be used.
+     * 
+     * @param {number} [mean]
+     * The desired mean of the normal distribution. If not provided, zero will be used.
+     * 
+     * @param {number} [variance]
+     * The desired variance of the normal distribution. If not provided, one will be used.
+     * 
+     * @param {function} [impl]
+     * Implementation to use. If not provided, the BoxMuller method will be used.
+     * 
+     * @return {number}
+     * A number normally distributed between (-variance..mean..variance).
+     */
+    number.dist.normal = number.dist.norm = number.dist.gaussian = number.dist.bell =
+      function (n, mean, variance, impl = number.dist.boxMuller) { return impl.apply(null, arguments) };
+
+    /**
+     * Convert a number uniformly distributed between [0..1] to a number with a gaussian
+     * (i.e. normal) distribution between (0..1) using the BoxMuller algorithm.
+     * 
+     * @param {number} [n]
+     * A uniformly distributed number expected to be between (0..1) and will be clamped. 
+     * If not provided, a random number will be used.
+     * 
+     * @param {number} [mean]
+     * The desired mean of the normal distribution. If not provided, zero will be used.
+     * 
+     * @param {number} [variance]
+     * The desired variance of the normal distribution. If not provided, one will be used.
+     * 
+     * @return {number}
+     * A number normally distributed between (-variance..mean..variance).
+     */
+    number.dist.boxMuller = (n = number.rng({ int: true }), mean = 0, variance = 1) => {
+      assert(0 <= n && n <= 1);
+      n = number.clamp(n, Number.MIN_VALUE, 1 - Number.EPSILON);//(0..1)
+      const m = number.rng({ min: Number.MIN_VALUE, max: 1 });//(0..1)
+      const distributed = Math.sqrt(-2.0 * Math.log(n)) * Math.cos(2.0 * Math.PI * m);//[-1..0..1]
+      return distributed * variance + mean;
+    };//boxMuller
+
+    //RANDOM NUMBER GENERATOR////////////////////////////////////////
+
+    /**
+     * Generate a uniformly distributed pseudo random number between [0.0, 1.0).
+     * 
+     * @param {object} [options]
+     * Collection of options describing the type of random number to produce. Options may differ depending
+     * on the implementation being used.
+     * 
+     * @param {function} [options.impl]
+     * Implementation to use. If not provided, the WichmannHill algorithm will be used.
+     * 
+     * @return {number}
+     */
+    number.rng = function ({ impl = number.rng.wichmannHill } = {}) { return impl.apply(null, arguments) };
+
+    /**
+     * @param {number}
+     * Accessor to the random number generator's seed.
+     */
+    Object.defineProperties(number.rng, {
+      seed: {
+        get: () => rngSeedCurrent,
+        set: (seed = number.rng.defaultSeed) => {
+          wichmannHillGenerators = null;//force the wichmannHill algorithm to re-initialize
+          return rngSeedCurrent = seed;
+        },//set
+      },//seed
+      defaultSeed: {
+        get: () => 5150,
+        set: () => assert(),
+      },//defaultSeed
+    });//defineProperty
+    let rngSeedCurrent = number.rng.defaultSeed;
+
+    /**
+     * Generate a uniformly distributed pseudo random number between [0.0, 1.0) using Wichmann–Hill algorithm.
+     * 
+     * @param {object} [options]
+     * Collection of options describing the type of random number to produce.
+     * 
+     * @param {boolean} [options.int]
+     * Request a integer random number.
+     * 
+     * @param {number} [options.min]
+     * Request a random number that is greater than or equal to a min value.
+     * 
+     * @param {number} [options.max]
+     * Request a random number that is less than or equal to a max value.
+     * 
+     * @param {number[]} [options.exclude]
+     * Request a random number that does not belong in a given list.
+     * 
+     * @return {number}
+     */
+    number.rng.wichmannHill = function ({ int = 0, min = 0, max = min + 1 + int * 99, exclude = [] } = {}) {
+      assert(min < max && (int && is.arr(exclude) || !int && (!exclude || !exclude.length)));
+      if (!wichmannHillGenerators) {
+        //initialize a new seed
+        let seedInitializer = number.rng.seed;
+        wichmannHillGenerators = { x: 0, y: 0, z: 0 };
+        wichmannHillGenerators.x = (seedInitializer % 30268) + 1;
+        seedInitializer = (seedInitializer - (seedInitializer % 30268)) / 30268;
+        wichmannHillGenerators.y = (seedInitializer % 30306) + 1;
+        seedInitializer = (seedInitializer - (seedInitializer % 30306)) / 30306;
+        wichmannHillGenerators.z = (seedInitializer % 30322) + 1;
+        seedInitializer = (seedInitializer - (seedInitializer % 30322)) / 30322;
+      }//if
+      if (int) {
+        min = Math.floor(min);
+        max = Math.ceil(max);
+        const range = subtract(Array(max - min).fill(0).map((x, i) => min + i), exclude);
+        assert(range.length, 'rng.int: no valid options between ' + min + ' and ' + max);
+        return range[Math.floor(number.rng.wichmannHill() * range.length)];
+      }//if
+      //now generate the next random number
+      wichmannHillGenerators.x = (171 * wichmannHillGenerators.x) % 30269;
+      wichmannHillGenerators.y = (172 * wichmannHillGenerators.y) % 30307;
+      wichmannHillGenerators.z = (170 * wichmannHillGenerators.z) % 30323;
+      const result = (
+        wichmannHillGenerators.x / 30269.0 +
+        wichmannHillGenerators.y / 30307.0 +
+        wichmannHillGenerators.z / 30323.0
+      ) % 1.0;//[0..1]
+      return min + result * (max - min);//[min..max]
+    }//rng.wichmannHill
+    let wichmannHillGenerators = null;
+  }
+
+  /////////////////////////////////////////////////////////////////
+  // STRING
+  /////////////////////////////////////////////////////////////////
+
+  /**
+   * [IMMUTABLE] Convert almost anything into a string if it isn't already.
+   * 
+   * @param {*} v
+   * Value(s) to be converted to a string.
+   * 
+   * @return {string}
+   */
+  const string = (v) => {
+    if (is.str(v)) return v;
+    if (v && is.func(v.toString)) return v.toString();
+    return JSON.stringify(v);
+  }//string
+  const str = string;
+
+  //HELPERS////////////////////////////////////////////////////////
+  {
+    /**
+     * [IMMUTABLE] Get the left portion of a string.
+     * 
+     * @param {string} str
+     * String to parse.
+     * 
+     * @param {number} [pos=1]
+     * If positive, acts as a left-to-right position of where the result ends (i.e: the length of the result).
+     * If negative, acts as a right-to-left position of where the result ends.
+     * 
+     * @return {string}
+     * 
+     * @example string.left('abcde', 2) //⇒ 'ab'
+     * @example string.left('abcde',-2) //⇒ 'abc'
+     */
+    string.left = (str, pos = 1) => string(str).substring(0, pos < 0 ? str.length + pos : pos);
+
+    /**
+     * [IMMUTABLE] Get the right portion of a string.
+     * 
+     * @param {string} str
+     * String to parse.
+     * 
+     * @param {number} [pos=-1]
+     * If positive, acts as a left-to-right position of where the result begins.
+     * If negative, acts as a right-to-left position of where the result begins (i.e: the length of the result).
+     * 
+     * @return {string}
+     * 
+     * @example string.right('abcde', 2) //⇒ 'cde'
+     * @example string.right('abcde',-2) //⇒ 'de'
+     */
+    string.right = (str, pos = -1) => string(str).substring(pos < 0 ? str.length + pos : pos);
+
+    /**
+     * [IMMUTABLE] Get the middle portion of a string.
+     * 
+     * @param {string} str
+     * String to parse.
+     * 
+     * @param {number} pos
+     * If positive, acts as a left-to-right position of where the result begins.
+     * If negative, acts as a right-to-left position of where the result begins.
+     * 
+     * @param {number} [len=1]
+     * The desired length of the result.
+     * 
+     * @result {string}
+     * 
+     * @example string.mid('abcde', 2,2) //⇒ 'cd/
+     * @example string.mid('abcde',-2,2) //⇒ 'de'
+     */
+    string.mid = (str, pos, len = 1) => {
+      const strConverted = string(str);
+      const absPos = pos < 0 ? strConverted.length + pos : pos;
+      return strConverted.substring(absPos, absPos + len);
+    }//mid
+
+    /**
+     * [IMMUTABLE] Insert a string into another string at a given position.
+     * 
+     * @param {string} str
+     * Target string to be injected into.
+     * 
+     * @param {string} newStr
+     * String to inject into the first.
+     * 
+     * @param {number} [pos=0]
+     * If positive, acts as a left-to-right position of where the injection should begin.
+     * If negative, acts as a right-to-left position of where the injection should begin.
+     * 
+     * @return {string}
+     * 
+     * @example string.insert('abefg','cd', 2) //⇒ 'abcdefg'
+     * @example string.insert('abefg','cd',-2) //⇒ 'abecdfg'
+     */
+    string.insert = string.inject = (str, newStr, pos = 0) => {
+      const strConverted = string(str);
+      const absPos = pos < 0 ? strConverted.length + pos : pos;
+      return [strConverted.slice(0, absPos), newStr, strConverted.slice(absPos)].join('');
+    }//insert
+
+    /**
+     * [IMMUTABLE] Delivers an all lowercase version of the given string.
+     * 
+     * @param {string} str
+     * String to reproduce as lowercase.
+     * 
+     * @return {string}
+     * 
+     * @example string.lower('The #1 Brown Fox') //⇒ 'the #1 brown fox'
+     */
+    string.lower = string['lowercase'] = (str) => string(str).toLowerCase();
+
+    /**
+     * [IMMUTABLE] Delivers an all uppercase version of the given string.
+     * 
+     * @param {string} str
+     * String to reproduce as uppercase.
+     * 
+     * @return {string}
+     * 
+     * @example string.upper('The #1 Brown Fox') //⇒ 'THE #1 BROWN FOX'
+     */
+    string.upper = string['UPPERCASE'] = (str) => string(str).toUpperCase();
+
+    /**
+     * [IMMUTABLE] Delivers a titlecase version of the given string.
+     * 
+     * @param {string} str
+     * String to reproduce as titlecase.
+     * 
+     * @return {string}
+     * 
+     * @example string.title('The #1 brown fox') //⇒ 'The #1 Brown Fox'
+     */
+    string.title = string['Title Case'] = (str) => string(str).toLowerCase()
+      .replace(/[_-]/g,' ')
+      .replace(/(?:^\w|[A-Z]|\b\w)/g, (word) => word.toUpperCase());
+
+    /**
+     * [IMMUTABLE] Delivers a camelcase version of the given string. Unlike converting to lower 
+     * or upper case, this requires eliminating non-alphanumeric characters and whitespace.
+     * 
+     * @param {string} str
+     * String to reproduce as camelcase.
+     * 
+     * @return {string}
+     * 
+     * @example string.lower('The #1 Brown Fox') //⇒ 'the1BrownFox'
+     */
+    string.camel = string['camelCase'] = (str) => string(str).toLowerCase()
+      .replace(/[_-]/g,' ')
+      .replace(/[^a-zA-Z0-9 ]/g,'')
+      .replace(/(?:^\w|[A-Z]|\b\w)/g, (word,i) => i ? word.toUpperCase() : word.toLowerCase())
+      .replace(/\s+/g,'');
+
+    /**
+     * [IMMUTABLE] Delivers a pascalcase version of the given string. Unlike converting to lower 
+     * or upper case, this requires eliminating non-alphanumeric characters and whitespace.
+     * 
+     * @param {string} str
+     * String to reproduce as pascalcase.
+     * 
+     * @return {string}
+     * 
+     * @example string.pascal('The #1 Brown Fox') //⇒ 'The1BrownFox'
+     */
+    string.pascal = string['PascalCase'] = (str) => string(str).toLowerCase()
+      .replace(/[_-]/g,' ')
+      .replace(/[^a-zA-Z0-9 ]/g,'')
+      .replace(/(?:^\w|[A-Z]|\b\w)/g, (word) => word.toUpperCase())
+      .replace(/\s+/g,'');
+
+    /**
+     * [IMMUTABLE] Delivers a snakecase version of the given string. Unlike converting to lower 
+     * or upper case, this requires eliminating non-alphanumeric characters and whitespace.
+     * 
+     * @param {string} str
+     * String to reproduce as snakecase.
+     * 
+     * @return {string}
+     * 
+     * @example string.snake('The #1 Brown Fox') //⇒ 'the-1-brown-fox'
+     */
+    string.snake = string['snake_case'] = (str) => string(str).toLowerCase()
+      .replace(/[_-]/g,' ')
+      .replace(/[^a-zA-Z0-9 ]/g,'')
+      .replace(/\s+/g,'_');
+
+    /**
+     * [IMMUTABLE] Delivers a kebabcase version of the given string. Unlike converting to lower 
+     * or upper case, this requires eliminating non-alphanumeric characters and whitespace.
+     * 
+     * @param {string} str
+     * String to reproduce as kebabcase.
+     * 
+     * @return {string}
+     * 
+     * @example string.lower('The #1 Brown Fox') //⇒ 'the-1-brown-fox'
+     */
+    string.kebab = string['kebab-case'] = (str) => string(str).toLowerCase()
+      .replace(/[_-]/g,' ')
+      .replace(/[^a-zA-Z0-9 ]/g,'')
+      .replace(/\s+/g,'-');
+
+    /**
+     * [IMMUTABLE] Calculate a hash for the given string. Unlike converting to lower 
+     * or upper case, this requires eliminating non-alphanumeric characters and whitespace.
+     * 
+     * @param {string} str
+     * String to analyze.
+     * 
+     * @return {string}
+     */
+    string.hash = (str) => string(str).split('')
+      .reduce((a, x) => (a = ((a << 5) - a) + x.charCodeAt(0)) & a, 0);
+
+    /**
+     * [IMMUTABLE] Count the number of nonblank (i.e: non whitespace) characters in the given string.
+     * 
+     * @param {string} str
+     * String to analyze.
+     * 
+     * @return {string}
+     * 
+     * @example string.nonblank('The #1 Brown Fox') //⇒ 13
+     */
+    string.nonblank = (str) => !!string(str).replace(/\s/g, '').length;
+
+    /**
+     * [IMMUTABLE] Count how many occurrences of a substring there are.
+     * 
+     * @param {string} str
+     * String to parse.
+     * 
+     * @param {string} lookFor
+     * Substring to look for.
+     * 
+     * @param {boolean} [overlapping=false]
+     * Whether to allow overlapping results or not.
+     * 
+     * @return {number}
+     * 
+     * @example string.count('banana','ana',false) //⇒ 1
+     * @example string.count('banana','ana', true) //⇒ 2
+     */
+    string.count = string.has = (str, lookFor, overlapping = false) => {
+      const strConverted = string(str);
+      if (!lookFor.length) return strConverted.length + 1;
+      const step = overlapping ? 1 : lookFor.length;
+      for (let n = 0, pos = 0; ; ++n, pos += step) {
+        pos = strConverted.indexOf(lookFor, pos);
+        if (pos < 0) return n;
+      }//while
+    };//count
+
+    /**
+     * [IMMUTABLE] Find a matching closing brace or tag in a given string.
+     * 
+     * @param {string} str
+     * String to parse.
+     * 
+     * @param {number} [pos=0]
+     * If positive, acts as a left-to-right position of where the open bracket or tag begins.
+     * If negative, acts as a right-to-left position of where the open bracket or tag begins.
+     * 
+     * @param {boolean} [markup=false]
+     * Whether the indicated position in the string is a <tag> or not.
+     * 
+     * @return {number}
+     * 
+     * @example string.findClosing('abc<d>efg</d>hij',3,{markup=true}) //⇒ 9
+     * @example string.findClosing('abc{def<gh>i}j}k',3) //⇒ 12
+     */
+    string.findClosing = (str, pos = 0, markup = false, brackets = stringFindClosingClosures) => {
+      const strConverted = string(str);
+      const absPos = pos < 0 ? strConverted.length + pos : pos;
+      if (markup) {
+        const tag = string.mid(strConverted, absPos, string.findClosing(strConverted, absPos) - absPos + 1);
+        const closeTag = string.insert(tag, '/', 1);
+        return strConverted.indexOf(closeTag, absPos);
+      }//if
+      const openBrace = strConverted[absPos];
+      const closeBrace = brackets[openBrace];
+      assert(closeBrace, 'No matching brace found for: ' + openBrace);
+      for (let i = absPos + 1, depth = 1; i < strConverted.length; ++i) {
+        if (openBrace === strConverted[i])++depth;
+        else if (closeBrace === strConverted[i]) {
+          if (0 === --depth) return i;
+        }//else if
+      }//for
+      return -1;//no match
+    };//findClosing
+    const stringFindClosingClosures = {
+      '(': ')', '[': ']', '{': '}', '<': '>',
+      '‹': '›', '«': '»', '‹': '›', '⁽': '⁾',
+      '⁅': '⁆', '“': '”', '‘': '’', '「': '」',
+      '『': '』', '《': '》', '〈': '〉'
+    };//stringFindClosingClosures
+  }
+
+  string.urlToId = (strUrl) => strUrl.match(/[-\w]{25,}/)[0];
+  //TODO: idToUrl = (strId) => 'https://docs.google.com/'+getType(strId)+'/d/'+strId;
+
+  /////////////////////////////////////////////////////////////////
+  // FUNCTION
+  /////////////////////////////////////////////////////////////////
+
+  /**
+   * [IMMUTABLE] Convert almost anything into a function if it isn't already.
+   * 
+   * @param {*} [v]
+   * Value(s) to be converted to a function.
+   * 
+   * @return {function}
+   */
+  const func = (v) => is.function(v) ? v : function () { return v };
+
+  /////////////////////////////////////////////////////////////////
+  // ARRAY
+  /////////////////////////////////////////////////////////////////
+
+  /**
+   * [IMMUTABLE] Convert almost anything into an array if it isn't already.
+   * 
+   * @param {*} [v]
+   * Value(s) to be converted to an array.
+   * 
+   * @return {[*]}
+   */
+  const array = (...v) => {
+    if (!v.length) return undefined;//array(undefined) ⇒ undefined//not [undefined]
+    if (1 < v.length) return v;
+    v = v[0];
+    if (is.arr(v)) return v;
+    if (is.prim(v)) return [v];
+    if (is.def(v.length)) return Array.from(v);//works on strings, objects w/ length
+    if (!is.func(v.next)) return Object.values(v);
+    let maxDepth = 1024;
+    let result = [];
+    while (v.hasNext() && --maxDepth) result.push(v.next());
+    assert(maxDepth);
+    return result;
+  }//array
+  const arr = array;
+
+  //HELPERS////////////////////////////////////////////////////////
+  {
+    /**
+     * Create a new array and fill it up.
+     * 
+     * @param {number} length
+     * How long the new array should be.
+     * 
+     * @param {*} [filler]
+     * What the new array should be filled with, or a function that determines each value.
+     * 
+     * @return {[*]}
+     */
+    array.new = (length, filler = arrayNewDefaultFiller) => {
+      let result = Array(length).fill(is.func(initialValue) ? null : initialValue);
+      if(is.func(initialValue)) result = result.map(filler);
+      return result;
+    }//array.new
+    const arrayNewDefaultFiller = (x,i) => i;
+
+    /**
+     * [IMMUTABLE] Create a copy of the given array that contains only unique elements.
+     * 
+     * @param {[*]} arr
+     * Array on which to find the unique elements.
+     * 
+     * @return {[*]}
+     */
+    array.unique = (arr) => new Set([...arr]);
+
+    /**
+     * [MUTABLE] Set an element in the given array to a value. If the index is beyond the length
+     * of the array then the array will be grown to that size.
+     * 
+     * @param {[*]} arr
+     * Array on which to find and set an element.
+     * 
+     * @param {number} i
+     * Array index of element to set.
+     * 
+     * @param {*} value
+     * Value to set into the array at the given index.
+     * 
+     * @return {[*]}
+     */
+    array.set = (arr, i, value) => {
+      if (i < arr.length - 1) arr.length = Math.max(i + 1, arr.length);
+      arr[i] = value;
+      return arr;
+    }//set
+
+    /**
+     * [IMMUTABLE] Find an element in the given lookup and return the associated element from the given target.
+     * 
+     * @param {*} target
+     * Anything that can be converted to an array (incl. objects) from which to get results.
+     * 
+     * @param {*} lookup
+     * Anything that can be converted to an array (incl. objects) to be searched in.
+     * 
+     * @param {*} elem
+     * An element that exists one or more times in lookup.
+     * 
+     * @return {*}
+     */
+    array.match = (target, lookup, elem, isUnique = true) => {
+      console.log('match('+JSON.stringify(target)+','+JSON.stringify(lookup)+','+JSON.stringify(elem)+')');
+      const result = array(elem).map(x => {
+        const matches = loop(lookup, j => j.elem===x ? target[+j] : loop.continue).elems;
+        return isUnique ? matches.uno : matches;
+      });//map
+      if(is.arr(elem)) return result;
+      return uno(result);
+    }//match
+
+    /**
+     * [IMMUTABLE] Transpose a given 2D array.
+     * 
+     * @param {[[*]]} arr
+     * 2D array to transpose.
+     * 
+     * @return {[[*]]}
+     */
+    array.transpose = (arr) => array(arr[0]).map((x, i) => arr.map((y, j) => array(arr[j])[i]));
+
+    /**
+     * [IMMUTABLE] Matrix multiply two 2D arrays.
+     * 
+     * @param {[[number]]} m1
+     * First matrix to perform multiply.
+     * 
+     * @param {[[number]]} m2
+     * Second matrix to perform multiply.
+     * 
+     * @return {[[number]]}
+     */
+    array.matrixMultiply = array.multiply = array.mmult = (m1, m2) =>
+      m1.map((x, r) => array(m2[0])
+        .map((x, c) => array(m1[0])
+          .reduce((a, x, i) => a + array(m1[r])[i] * array(m2[i])[c], 0)
+        )//map
+      );//map
+  }
+
+  /////////////////////////////////////////////////////////////////
+  // OBJECT
+  /////////////////////////////////////////////////////////////////
+
+  /**
+   * [IMMUTABLE] Convert almost anything into an object if it isn't already.
+   * 
+   * @param {*} [v]
+   * Value(s) to be converted to an object.
+   * 
+   * @return {object}
+   */
+  const object = (...v) => {
+    if (is.obj(v[0])) return 1 === v.length ? v[0] : Object.assign({}, ...v);
+    //func will throw an err if v[0] is a prim or if v isn't the kind of array that Object.fromEntries expects
+    return retry(
+      /* try    */ () => assert(!is.prim(v[0])) && Object.assign({}, ...v.map(x => Object.fromEntries(x))),
+      /* onFail */ () => Object.fromEntries([...v.map((x, i) => [i, x]).concat(v.length ? [['length', v.length]] : [])]),
+    );//retry
+  };//object
+  const obj = object;
+
+  //HELPERS////////////////////////////////////////////////////////
+  {
+    object.define = object.def = (o, propNames, value) => {
+      array(propNames).forEach(x => 
+        //unlike Object.defineProperty() we want to default to configurable:true
+        Object.defineProperty(o, x, Object.assign({ configurable: true },value))
+      );//forEach
+      return o;//for chaining
+    };//define
+
+    /**
+     * [MUTABLE] Alters the given array, deleting all properties until it is empty.
+     * 
+     * @param {object} o
+     * Object to clear.
+     * 
+     * @return {{}}
+     *
+    object.clear = object.empty = object.reset = (o) =>
+      Object.getOwnPropertyNames(o).forEach(x => delete o[x]) || o;
+
+    /**
+     * [MUTABLE] Alter the given object to give it the properties of other objects.
+     * 
+     * @param {object} dst
+     * Destination object to alter.
+     * 
+     * @param {object} [src]
+     * One or more other objects from which to copy properties over to the destination object.
+     * 
+     * @return {object}
+     */
+    object.extend = object.combine = object.merge = object.assign = function(dst, ...src){
+      //Object.assign(dst,...src);//only works on enumerable properties!
+      src.forEach(function(x){
+        return obj.keys(x,{ nonenumerable: true }).forEach(function(y){
+          return Object.defineProperty(dst,y,{
+            configurable: true,
+            value: x[y],
+          });//defineProperty
+        });//forEach
+      });//forEach
+    };//extend
+
+    /**
+     * [IMMUTABLE] Get all of the given object's parents in its prototype chain.
+     * 
+     * @param {object} o
+     * Object whose parents should be retrieved.
+     * 
+     * @return {[*]}
+     */
+    object.parents = object.prototypeChain = (o) => o ? [o, ...object.parents(Object.getPrototypeOf(o))] : [];
+
+    /**
+     * [IMMUTABLE] Get all the property names (i.e: keys) that a given object has.
+     * 
+     * @param {object} o
+     * Object to operate on.
+     * 
+     * @param {object} [options]
+     * 
+     * @param {boolean} [options.inherited=false]
+     * Whether prototypes / parents should also be inspected.
+     * 
+     * @param {boolean} [options.nonenumerable=false]
+     * Whether nonenumerable properties should be included.
+     * 
+     * @return {[string]}
+     */
+    object.keys = object.propertyNames = (o, { inherited = false, nonenumerable = false } = {}) =>
+      (inherited ? obj.parents(o) : [o]).map(x => 
+        Object[nonenumerable ? 'getOwnPropertyNames' : 'keys'](x)
+      ).flat();//keys
+
+    /**
+     * Give an object a cacheable property where the first time it is accessed (e.g: 'obj.foo') the
+     * supplied getter function is invoked & on subsequent access the cached result is returned.
+     * Additionally, the supplied getter function is callable (e.g: 'obj.getFoo()') directly to allow
+     * for bypassing the cache.
+     * 
+     * @param {object} obj
+     * Target object to define new properties on.
+     * 
+     * @param {string|string[]} [propNames]
+     * One or more property names to assign to the cacheable being produced.
+     * 
+     * @param {function} [getter]
+     * The function to run when the cacheable is first called.
+     * 
+     * @return {object}
+     * 
+     * @example <caption>Add a specific function as a cacheable value that goes by 2 different names.</caption>
+     *          cacheable({id:5},['sound','noise'],()=>'moo') //returns {id:5,sound:'moo'}
+     */
+    object.cacheable = (o, propNames, getter) => {
+      assert(propNames && getter);
+      propNames = array(propNames);
+      propNames.forEach(x => (x==str.upper(x)) && propNames.push(str.camel(x)));
+      propNames.forEach(x => {
+        const propName = str(x);
+        const getterName = 'get' + propName[0].toUpperCase() + propName.slice(1);
+        Object.defineProperty(o, getterName, {
+          configurable: true,
+          value: function () {
+            const value = getter.apply(o,arguments);
+            Object.defineProperty(o, propName, { configurable: true, value: value });
+            return value;
+          },//value
+        });//defineProperty
+        Object.defineProperty(o, propName, {
+          configurable: true,
+          set: () => assert(),
+          get: () => o[getterName].apply(o),
+        })//defineProperty
+      });//forEach
+      return o;//for chaining
+    };//cacheable
+
+    /**
+     * Create a cacheable property for each of the given object's methods that begin with 'get' and take 
+     * zero parameters. The original getter (e.g: 'getId') remains intact as a way to bypass the cached 
+     * value (e.g: 'id').
+     * 
+     * @param {object} obj
+     * Target object to define new properties on.
+     * 
+     * @return {object}
+     * 
+     * @example <caption>Convert all getters to cacheable values.</caption>
+     *          cacheable({getId:()=>5}) //returns {getId:()=>5,id:5}
+     */
+    object.cacheables = o => {
+      object.keys(o,{ nonenumerable: true }).forEach(x => {
+        if(!x.startsWith('get')) return;
+        if(0 < o[x].length) return;
+        const cacheableName = x[3].toLowerCase() + x.slice(4);//remove "get" and fix camel case
+        if(!o.mr) o.mr = {};
+        o.mr[x] = o[x];//keep a hidden copy of the old function because this one is about to get overwritten
+        object.cacheable(o,cacheableName,o.mr[x]);
+      });//forEach
+      return o;//for chaining
+    };//cacheables
+  }
+
+  /////////////////////////////////////////////////////////////////
+  // DATE
+  /////////////////////////////////////////////////////////////////
+
+  /**
+   * [IMMUTABLE] Create a date from the given value. This is a wrapper around luxon.DateTime
+   * with only a few added features, such as the ability to get the date & time in serial
+   * number format for compatibility with Google Sheets.
+   * 
+   * @param {*} [v]
+   * Value to create a new date from. If not provided, a date for right now will be created.
+   * If the value is a string, the format and options parameters should also be provided to 
+   * describe the best way to parse the desired date.
+   * 
+   * @param {string} [format]
+   * Only valid if the given value is a string. This format parameter describes ho
+   * The format that the given value string is expected to be in. For more information see:
+   * https://moment.github.io/luxon/docs/manual/parsing.html#table-of-tokens
+   * 
+   * @param {object} [options]
+   * 
+   * @param {string} [options.zone]
+   * Use this zone if no offset is specified in the input string itself. Will also convert the 
+   * DateTime to this zone.
+   * 
+   * @param {string} [options.setZone]
+   * Override the zone with a zone specified in the string itself, if it specifies one.
+   * 
+   * @param {string} [options.locale]
+   * A locale string to use when parsing. Will also set the DateTime to this locale.
+   * 
+   * @param {string} [options.numberingSystem]
+   * The numbering system to use when parsing. Will also set the resulting DateTime to this 
+   * numbering system.
+   * 
+   * @param {string} [options.outputCalendar]
+   * The output calendar to set on the resulting DateTime instance.
+   * 
+   * @return {luxon.DateTime}
+   */
+  const date = (v, format, options) => {
+    assert(!format && !options || is.str(v));
+    let dt = (() => {
+      if(is.dt(v)) return v;
+      if(is.date(v)) return luxon.DateTime.fromJSDate(v);
+      if(is.str(v) && is.str(format)) return luxon.DateTime.fromString(v,format,options);
+      if(is.str(v)) return luxon.DateTime.fromISO(v);
+      if(is.undef(v)) return luxon.DateTime.local();
+      assert(is.finite(v));
+      //assume given value is a serial number to convert
+      var intPart = Math.floor(v);
+      var fracPart = v - intPart;
+      var time = Math.round(fracPart * 24 * 60 * 60 * 1000);
+      var d = new Date(Date.UTC(1899, 11, 30 + intPart) + time);
+      d.setMinutes(d.getMinutes() + d.getTimezoneOffset());
+      return luxon.DateTime.fromJSDate(d);
+    })();//use anon func to make code cleaner with returns
+    dt.serial = serial;
+    return dt;
+  }//date
+
+  /**
+   * Convert a date into a serial number (as used by services such as Google Sheets).
+   * 
+   * @param {*} [d]
+   * Value that can be coerced into a date
+   * 
+   * @return {number}
+   */
+  const serial = (d = new Date()) => {
+    if (is.dt(d)) d = d.toJSDate();
+    return ((d.getTime() - minSerial.getTime()) / 60000 - d.getTimezoneOffset()) / 1440;
+  };//serial
+  const minSerial = new Date(Date.UTC(1899, 11, 30, 0, 0, 0, 0));//starting value for Google serial dates
+
+  // Doing this here instead of in extendPrototypes() because luxon is not a JS
+  // primitive type and we want this functionality everywhere.
+  object.cacheable(luxon.DateTime, ['serial', 'serialNumber', 'serialNum'],
+    function () { return serial(this.toJSDate()) });
+
+  /////////////////////////////////////////////////////////////////
+  // DURATION
+  /////////////////////////////////////////////////////////////////
+
+  /**
+   * Calculate the duration between two times and return a specialized duration object 
+   * that resembles a luxon Duration object but maintains a luxon Interval and the 
+   * start & end points behind the scenes so that the resultant luxon Duration is 
+   * always recalculated based on the latest interval.
+   * 
+   * @param {DateTime} [start]
+   * The start time of the desired duration given as a luxon DateTime. If not provided, the time of 
+   * the last call to duration will be used, or the entry point start time of the current execution.
+   * 
+   * @param {DateTime} [end]
+   * The ending time of the desired duration given as a luxon DateTime. If not provided, the current
+   * time will be used.
+   * 
+   * @return {object}
+   * A custom object that resembles a luxon Duration object (has all the same methods) plus data
+   * members to access or change the start and end points which triggers a duration recalculation.
+   */
+  const duration = ({start, end, name}={}) => {
+    const now = luxon.DateTime.local();
+    let _start = start || durationLastCall[name] || entry.time;
+    let _end = end || now;
+    if(name) durationLastCall[name] = now;
+    assert(_start <= _end,'Duration: '+
+      'Start ('+_start.toFormat('h:mm:ss.S')+') is bigger than End ('+_end.toFormat('h:mm:ss.S')+')!'
+    );//assert
+    const refresh = () => {
+      const _duration = luxon.Interval.fromDateTimes(_start,_end).toDuration();
+      Object.defineProperties(_duration, {
+        start: {
+          enumerable: true,
+          get: () => _start,
+          set: (dt) => {
+            assert(is.dt(dt));
+            _start = dt;
+            refresh();
+            return dt;
+          },//set
+        },//start
+        end: {
+          enumerable: true,
+          get: () => _end,
+          set: (dt) => {
+            assert(is.dt(dt));
+            _end = dt;
+            refresh();
+            return dt;
+          },//set
+        },//end
+      });//defineProperties
+      return _duration;
+    }//refresh
+    return refresh();
+  }//duration
+  let durationLastCall = {};
+
+  /////////////////////////////////////////////////////////////////
+  // COLUMN
+  /////////////////////////////////////////////////////////////////
+
+  const col = ({ number, letter, heading } = {}) => {
+    //TODO
+  }//col
+
+  /**
+   * Convert the given column reference into a column letter.
    * @param column : reference | colNumber | colHeading
    * @param reference : {letter:string | number:number | heading:string}
    * @param colNumber : number - Column number, starting with 1.
@@ -294,1903 +1800,816 @@ function mrImport(scope=globalThis){
    * @param headings : undefined | [string] - Column headings to search through, necessary if column is given as a heading.
    * @return string - Column letter in absolute A1 notation, must begin with $.
    */
-  mr.colToLetter = function(column,headings=[]){
-    if(mr.is.obj(column)) column = column.letter || column.number || column.heading;
-    if(mr.is.num(column)){
-      mr.assert(0<column,'colToLetter: Invalid column number');
-      let temp,letter = '';
-      while(0<column){
-        temp = (column - 1) % 26;
-        letter = String.fromCharCode(temp + 'A'.charCodeAt(0)) + letter;
-        column = (column - temp - 1) / 26;
+  const column = function(col){
+    const result = {};
+    const asciiA = 'A'.charCodeAt(0);
+    if(is.obj(col)) col = col.letter || col.number;
+    if(is.num(col)){
+      assert(0 < col, 'colToLetter: Invalid column number');
+      result.number = col;
+      while(0 < col){
+        const temp = (col - 1) % 26;
+        result.letter = String.fromCharCode(temp + asciiA) + (result.letter||'');
+        col = (col - temp - 1) / 26;
       }//while
-      return '$'+letter;
-    }else if(mr.is.str(column)){
-      if('$'===column[0]) return column;//no conversion necessary
-      const matches = headings.filterIndex(x => x.trim.lower===column.trim.lower);
-      let i = matches.length && matches.uno() || -1;
-      mr.assert(0<=i,'colAsLetter('+column+'): Failed to find heading!');
-      return mr.colToLetter(i+1);//convert to column number (starting at 1)
-    }//if
-    throw new Error('Unexpected type for column designation: '+JSON.stringify(column)+'('+typeof column+')');
-  }//colAsLetter
-  
-  /**
-   * colAsNumber(column,headings) - Convert the given column reference into a column number.
-   * @param {reference|letter|heading} column
-   * @param {{letter|number|heading}} reference
-   * @param {string} letter - Column letter in absolute A1 notation, must start with $.
-   * @param {number} number - Column number (starting from 1).
-   * @param {string} heading - Value of first row in column.
-   * @param {undefined|[string]} headings - Column headings to search through, necessary if reference is a heading.
-   * @return {string} - Column number, starting with 1.
-   */
-  mr.colAsNumber = function(column,headings=[]){
-    if(mr.is.obj(column)) column = column.number || column.letter || column.heading;
-    if(mr.is.num(column) && 0<column) return column;//no conversion necessary
-    else if(mr.is.str(column)){
-      if('$'===column[0]){
-        let num = 0;
-        for(let i=0;i<column.length;++i){
-          num += (column.charCodeAt(i) - ('A'.charCodeAt(0)-1)) * Math.pow(26,column.length - i - 1);
-        }//for
-        return num;
-      }//if
-      const matches = headings.filterIndex(x => x.trim.lower===column.trim.lower);
-      let i = matches.length && matches.uno() || -1;
-      mr.assert(0<=i,'colAsLetter('+column+'): Failed to find heading!');
-      return i+1;//convert to column number (starting at 1)
-    }//if
-    throw new Error('Unexpected type for column designation: '+typeof reference);
-  }//colAsNumber
-
-  /**
-   * _callstack - Gets the current callstack as an array of strings.
-   * @return {[string]}
-   */
-  mr.define(mr,'_callstack',{getter:function(){
-    try{throw new Error('!')}
-    catch(err){
-      const display = err.stack.right(err.stack.indexOf('\n')+1);
-      let matches = display.split(/\s*at /g);
-      matches.shift();//first element is blank
-      matches.shift();//next element is this getCallStack
-      matches.pop();//last element in V8 is always: "__GS_INTERNAL_top_function_call__.gs:1:8"
-      matches = matches.map(function(x,i){
-        return { //e.g: "test (mr:1824:3)"
-          func : x.left(x.indexOf(' (')),
-          file : x.mid(x.indexOf('(')+1,x.indexOf(':',x.indexOf('('))),
-          line : parseFloats(x.right(x.indexOf('(')))[0],
-          col  : parseFloats(x.right(x.indexOf('(')))[1]
-        };//return
-      },this);//map
-      matches.display = display;
-      return matches;
-    }//catch
-  }});//define
-  
-  mr.define(mr,'_caller',{getter:()=> mr._callstack[1].func});//_caller - Get the caller function name.
-  mr.define(mr,'_line'  ,{getter:()=> mr._callstack[1].line});//_line - Get the line number of a line of code.
-  mr.define(mr,'_file'  ,{getter:()=> mr._callstack[1].file});//_file - Get the file name of a script.
-  
-  ////////////////////////////////
-  ////////////////////////////////
-  // Logging
-  ////////////////////////////////
-  ////////////////////////////////
-  
-  mr.log       = function(msg){ if('RELEASE'!=mr.config && mr.log.useLogger) Logger.log(               msg); if('RELEASE'!=mr.config && mr.log.useConsole) console.log  (msg); return msg; }
-  mr.log.info  = function(msg){ if('RELEASE'!=mr.config && mr.log.useLogger) Logger.log('*INFO* '     +msg); if('RELEASE'!=mr.config && mr.log.useConsole) console.info (msg); return msg; }
-  mr.log.warn  = function(msg){ if('RELEASE'!=mr.config && mr.log.useLogger) Logger.log('**WARNING** '+msg); if('RELEASE'!=mr.config && mr.log.useConsole) console.warn (msg); return msg; }
-  mr.log.error = function(msg){ if('RELEASE'!=mr.config && mr.log.useLogger) Logger.log('***ERROR*** '+msg); if('RELEASE'!=mr.config && mr.log.useConsole) console.error(msg); return msg; }
-  mr.log.useLogger  = false;
-  mr.log.useConsole = true;
-  
-  ////////////////////////////////
-  ////////////////////////////////
-  // Random number generator
-  ////////////////////////////////
-  ////////////////////////////////
-  
-  /**
-   * rng() - Generate a psuedo random number [0,1). Seed can optionally be set beforehand via rng.seed(seed).
-   *         Calls the Wichmann-Hill implementation but we could easily point to others here.
-   * @return number - In the range [0,1)
-   */
-  mr.rng = mr.prng = mr.rand = mr.random = mr.partial({func:()=>mr.rng.wichmannHill()});
-  
-  /**
-   * rng.seed(seed) - Seed our psuedo random number generator for deterministic results.
-   *                  Calls the Wichmann-Hill implementation but we could easily point to others here.
-   * @param seed : number - Seed for the pseudo random number generator; defaults to Date.now().
-   */
-  mr.rng.seed = mr.partial({func:(seed)=>mr.rng.wichmannHill.seed(seed)});
-  
-  /**
-   * rng.wichmannHill(seed) - Generate a uniformly distributed pseudo random number between [0.0, 1.0) using the Wichmann–Hill algorithm.
-   * @param seed : undefined|number - Optional seed, defaults to whatever was set before, or Date.now().
-   * @return number
-   */
-  mr.rng.wichmannHill = function(){
-    if(mr.is.undef(mr.rng.wichmannHill.seed._curr)) mr.rng.wichmannHill.seed();//ensure we have at least the default seed
-    mr.rng.wichmannHill.seed.x = (171 * mr.rng.wichmannHill.seed.x) % 30269;
-    mr.rng.wichmannHill.seed.y = (172 * mr.rng.wichmannHill.seed.y) % 30307;
-    mr.rng.wichmannHill.seed.z = (170 * mr.rng.wichmannHill.seed.z) % 30323;
-    return ( mr.rng.wichmannHill.seed.x/30269.0 + 
-             mr.rng.wichmannHill.seed.y/30307.0 + 
-             mr.rng.wichmannHill.seed.z/30323.0
-           ) % 1.0;
-  }//rng.wichmannHill
-  
-  /**
-   * rng.wichmannHill.seed(seed) - Set the seed for our random number generator.
-   * @param seed : undefined|number - Optional seed, defaults to whatever was set before, or Date.now().
-   */
-  mr.rng.wichmannHill.seed = function(seed){
-    //do we need a new seed?
-    if(mr.is.def(mr.rng.wichmannHill.seed._curr) && mr.is.undef(mr.rng.wichmannHill.seed._orig)) mr.rng.wichmannHill.seed._orig = mr.rng.wichmannHill.seed._curr;
-    if(mr.is.def(seed)){
-      seed = mr.as.nums(seed).uno();//allow string containing a number
-      if(seed!==mr.rng.wichmannHill.seed._orig) mr.rng.wichmannHill.seed._orig = mr.rng.wichmannHill.seed._curr = seed;
-    }else if(mr.is.undef(mr.rng.wichmannHill.seed._curr)){
-      mr.rng.wichmannHill.seed._orig = mr.rng.wichmannHill.seed._curr = Date.now();
-    }//if
-    //do we need to initialize our seed?
-    if(mr.rng.wichmannHill.seed._curr===mr.rng.wichmannHill.seed._orig){
-      mr.rng.wichmannHill.seed.x = (mr.rng.wichmannHill.seed._curr % 30268) + 1;
-      mr.rng.wichmannHill.seed._curr = (mr.rng.wichmannHill.seed._curr - (mr.rng.wichmannHill.seed._curr % 30268)) / 30268;
-      mr.rng.wichmannHill.seed.y = (mr.rng.wichmannHill.seed._curr % 30306) + 1;
-      mr.rng.wichmannHill.seed._curr = (mr.rng.wichmannHill.seed._curr - (mr.rng.wichmannHill.seed._curr % 30306)) / 30306;
-      mr.rng.wichmannHill.seed.z = (mr.rng.wichmannHill.seed._curr % 30322) + 1;
-      mr.rng.wichmannHill.seed._curr = (mr.rng.wichmannHill.seed._curr - (mr.rng.wichmannHill.seed._curr % 30322)) / 30322;
-    }//if
-  }//wichmannHill.seed
-  
-  /**
-   * rng.int({min,max,exclude}}) - Generate a random integer [min,max) excluding the given values.
-   * @param {number} min - Minimum allowable integer, defaults to 0.
-   * @param {number} max - Maximum allowable integer up to but excluding this number, defaults to 100.
-   * @param {[number]} exclude - List of numbers to exclude, defaults to empty [].
-   * @return {number}
-   */
-  mr.rng.int = mr.rng.integer = mr.rng.between = function({min=0,max=100,exclude=[]}={}){
-    let range = [];
-    for(let i=Math.ceil(min);i<Math.floor(max);++i){
-      if(!exclude.has(i)) range.push(i);
-    }//for
-    mr.assert(range.length,'rng.int: no valid options between '+min+' and '+max);
-    const randIndex = Math.floor(mr.rng()*((range.length-1) - 0 + 1)) + 0;
-    return range[randIndex];
-  }//rng.int
-  
-  ////////////////////////////////
-  ////////////////////////////////
-  // drive
-  ////////////////////////////////
-  ////////////////////////////////
-  
-  mr.drive                = {};
-  mr.drive.isAuthorized   = true;//always assume we're authorized unless we know we're not
-  mr.drive.maxRuntime     = 6*60*1000;//6m for Google Consumer accounts (30m for Google EDU accounts)
-  mr.drive.warningRuntime = mr.drive.maxRuntime - (2*60*1000);//6m-2m=4m
-  
-  //settings that users of this mr lib can modify to suit their purposes
-  //mr.drive.settings			   = {};
-  //mr.drive.settings.blockLocks   = true;//default value
-  
-  /**
-   * Send an email to someone.
-   * drive.email( to, cc, bcc, from, subject, body, isTest )
-   * @param to : string
-   * @param cc : string
-   * @param bcc : undefined|string|[string] - Can be a comma-delimited string or an array of strings, defaults to whatever is set to drive.settings.bccEmails.
-   * @param from : undefined|{name,email,noReply} - Sender's display name and reply-to email address, defaults to active user.
-   * @param from.name : undefined|string - Name to display as the sender, defaults to active user's regular display.
-   * @param from.email : undefined|string - Reply-to email address, defaults to active user's email.
-   * @param from.noReply : undefined|boolean - True to prevent reply emails, defaults to false.
-   * @param subject : string
-   * @param body : string - Can be in HTML.
-   * @param isTest : undefined|boolean - Defaults to false;
-   * @return boolean - True if email was sent (or if isTest is true); otherwise false.
-   */
-  mr.drive.email = function({to,cc,bcc=mr.drive.bccAllEmails,from={noReply:true,name:'AUTOMATED EMAILER',email:Session.getActiveUser().getEmail()},subject='',body,isTest=false}){
-    if(mr.drive.onlyEmailSelf) to = cc = bcc = Session.getActiveUser().getEmail();
-    if(mr.is.arr( to))  to =  to.toString();//comma-delimmitted
-    if(mr.is.arr( cc))  cc =  cc.toString();//comma-delimmitted
-    if(mr.is.arr(bcc)) bcc = bcc.toString();//comma-delimmitted
-    log('<'+from+'> emailing <'+to+'> re: '+subject);
-    if(isTest) return log('Testing email:\n\t\tFrom:\t\t'+from+'\n\t\tTo:\t\t'+to+'\n\t\tCc:\t\t'+cc+'\n\t\tBcc:\t\t'+bcc+'\t\tSubject:\t'+subject+'\n\t\tBody:\t\t'+body);
-    if(drive.blockAllEmails) return log('Email blocked by the "Block all emails" setting');
-    const options = {cc:cc, bcc:bcc, body:body, name:from.name, email:from.email, noReply:from.noReply};
-    try{
-      return MailApp.sendEmail(to,subject,null,options);//~70ms
-    }catch(e){
-      const mailQuota = mr.profile(function(){return MailApp.getRemainingDailyQuota()},'getQuota');
-      log('MailApp.sendEmail() FAILED! (quota: '+mailQuota+')');
-      throw new Error('Failed to send email from <'+from.email+'> to <'+to+'> re: '+subject);
-    }//catch
-  }//email
-  
-  /**
-   * drive.ui - First use will get the ui api and cache it; subsequent use gets the cached result.
-   * drive.getUI() - Always gets the ui api and caches it as 'ui'.
-   * @return Object
-   */
-  mr.drive.getUI = mr.drive.getUi = function(){
-    let ui;
-    if(  SpreadsheetApp.getActiveSpreadsheet ()) ui = SpreadsheetApp.getUi();
-    else if(DocumentApp.getActiveDocument    ()) ui =    DocumentApp.getUi();
-    else if(  SlidesApp.getActivePresentation()) ui =      SlidesApp.getUi();
-    else if(    FormApp.getActiveForm        ()) ui =        FormApp.getUi();
-    else throw new Error('getUI: Unexpected UI type');
-    mr.define(mr.drive,'ui',{value:ui});
-    return ui;
-  };mr.define(mr.drive,'ui',{getter:mr.drive.getUI});
-  
-  /**
-   * drive.alert(title,prompt,buttons)
-   * @param title : undefined|string - Dialog title at the top, defaults to 'Please confirm'.
-   * @param prompt : undefined|string - Dialog message, defaults to 'Are you sure you want to continue?'.
-   * @param buttons : undefined|ButtonSet|string - Buttons on the dialog box, defaults to 'OK'.
-   * @return null|ButtonSet|string - The button the user clicked, or null if the dialog failed to show.
-   */
-  mr.drive.alert = function({title='Please confirm',prompt='Are you sure you want to continue?',buttons='OK'}={}){
-    if('RELEASE'==config) return null;
-    return mr.drive.ui.alert(title,prompt,drive.ui.ButtonSet[buttons]);
-  }//alert
-  
-  //////////////////////////////////////////////
-  //////////////////////////////////////////////
-  // drive.file
-  //////////////////////////////////////////////
-  //////////////////////////////////////////////
-  
-  /**
-   * new drive.file( _file | id ) - Construct a drive.file object.
-   * @param _file {File} - The google drive file object to base this new drive.file on.
-   * @param id {string} - The unique id of the file to base this new drive.file on.
-   * @return {drive.file}
-   */
-  mr.drive.file = function(_file){
-    mr.assert(new.target,'mr.drive.file must be called with new');
-    const _id = mr.is.obj(_file) ? _file.getId() : _file;
-    //first look in the cache
-    if(!mr.drive.file.cache) mr.drive.file.cache = {};
-    if(mr.drive.file.cache[_id]) return mr.drive.file.cache[_id];//cache hit
-    //cache miss, so make a new one
-    _file = mr.is.obj(_file) && _file || DriveApp.getFileById(_id);
-    Object.defineProperty(this,'_file',{value:_file});//make our private member public but read-only
-    for(let x in _file) this[x] = mr.is.func(_file[x]) ? mr.partial({thisArg:_file,func:x}) : _file[x];//inherit from base
-    //add new file to cache
-    return mr.drive.file.cache[_id] = this;
-  }//drive.file
-
-  /**
-   * file.type - First use will get the mime type and cache it; subsequent use gets the cached result.
-   * file.getType() - Always gets the current mime type and caches it as 'type'.
-   * @return {string}
-   */
-  mr.drive.file.prototype.getMimeType = mr.drive.file.prototype.getType = function(){
-    const type = this._file.getMimeType();
-    mr.define(this,'type',{value:type});//cache it
-    return type;
-  };mr.define(mr.drive.file.prototype,'type',{getter:mr.drive.file.prototype.getType});
-  
-  /**
-   * file.id - First use will get the id and cache it; subsequent uses gets the cached result.
-   * file.getId() - Always gets the current id and caches it as 'id'.
-   * @return {string}
-   */
-  mr.drive.file.prototype.getId = function(){
-    const id = this._file.getId();
-    mr.define(this,'id',{value:id});//cache it
-    return id;
-  };mr.define(mr.drive.file.prototype,'id',{getter:mr.drive.file.prototype.getId});
-  
-  /**
-   * file.url - First use will get the url and cache it; subsequent uses gets the cached result.
-   * file.getUrl() - Always gets the current url and caches it as 'url'.
-   * @return {string}
-   */
-  mr.drive.file.prototype.getUrl = function(){
-    const url = this._file.getUrl();
-    mr.define(this,'url',{value:url});//cache it
-    return url;
-  };mr.define(mr.drive.file.prototype,'url',{getter:mr.drive.file.prototype.getUrl});
-  
-  /**
-   * file.name - First use will get the name and cache it; subsequent uses gets the cached result.
-   * file.getName() - Always gets the current name and caches it as 'name'.
-   * @return {string}
-   */
-  mr.drive.file.prototype.getName = function(){
-    const name = this._file.getName();
-    mr.define(this,'name',{value:name});//cache it
-    return name;
-  };mr.define(mr.drive.file.prototype,'name',{getter:mr.drive.file.prototype.getName});
-  
-  /**
-   * file.link - First use will get the download url and cache it; subsequent uses gets the cached result.
-   * file.getLink() - Always gets the current download url and caches it as 'link'.
-   * @return {string}
-   */
-  mr.drive.file.prototype.getDownloadUrl = mr.drive.file.prototype.getLink = function(){
-    const link = this._file.getDownloadUrl();
-    mr.define(this,['downloadUrl','link'],{value:link});//cache it
-    return link;
-  };mr.define(mr.drive.file.prototype,['downloadUrl','link'],{getter:mr.drive.file.prototype.getLink});
-  
-  /**
-   * file.size - First use will get the size and cache it; subsequent uses gets the cached result.
-   * file.getSize() - Always gets the current size and caches it as 'size'.
-   * @return {number}
-   */
-  mr.drive.file.prototype.getSize = function(){
-    const size = this._file.getSize();
-    mr.define(this,'size',{value:size});//cache it
-    return size;
-  };mr.define(mr.drive.file.prototype,'size',{getter:mr.drive.file.prototype.getSize});
-  
-  /**
-   * file.desc - First use will get the description and cache it; subsequent uses gets the cached result.
-   * file.getDesc() - Always gets the current description and caches it as 'desc'.
-   * @return {string}
-   */
-  mr.drive.file.prototype.getDescription = mr.drive.file.prototype.getDesc = function(){
-    const desc = this._file.getDescription();
-    mr.define(this,['description','desc'],{value:desc});//cache it
-    return desc;
-  };mr.define(mr.drive.file.prototype,['description','desc'],{getter:mr.drive.file.prototype.getDesc});
-  
-  /**
-   * file.created - First use will get the date created and cache it; subsequent uses gets the cached result.
-   * file.getCreated() - Always gets the current date created and caches it as 'created'.
-   * @return {Date}
-   */
-  mr.drive.file.prototype.getDateCreated = mr.drive.file.prototype.getCreated = function(){
-    const created = this._file.getDateCreated();
-    mr.define(this,['dateCreated','created'],{value:created});//cache it
-    return created;
-  };mr.define(mr.drive.file.prototype,['dateCreated','created'],{getter:mr.drive.file.prototype.getCreated});
-  
-  /**
-   * file.updated - First use will get the last updated date and cache it; subsequent uses gets the cached result.
-   * file.getUpdated() - Always gets the current last updated date and caches it as 'updated'.
-   * @return {Date}
-   */
-  mr.drive.file.prototype.getLastUpdated = mr.drive.file.prototype.getUpdated = function(){
-    const updated = this._file.getLastUpdated();
-    mr.define(this,['lastUpdated','updated'],{value:updated});//cache it
-    return updated;
-  };mr.define(mr.drive.file.prototype,['lastUpdated','updated'],{getter:mr.drive.file.prototype.getUpdated});
-  
-  /**
-   * file.sharing - First use will get the sharing options and cache it; subsequent uses gets the cached result.
-   * file.getSharing() - Always gets the current sharing options and caches it as 'sharing'.
-   * @return {Object}
-   */
-  mr.drive.file.prototype.getSharing = function(){
-    const sharing = {
-      access     : this._file.getSharingAccess(),
-      permission : this._file.getSharingPermission()
-    };//sharing
-    mr.define(this,'sharing',{value:sharing});//cache it
-    return sharing;
-  };mr.define(mr.drive.file.prototype,'sharing',{getter:mr.drive.file.prototype.getSharing});
-  
-  /**
-   * file.parents - First use will get the parents and cache it; subsequent uses gets the cached result.
-   * file.getParents() - Always gets the current parents and caches it as 'parents'.
-   * @return {[drive.folder]}
-   */
-  mr.drive.file.prototype.getParents = function(){
-    const parents = mr.as.arr(this._file.getParents()).map(x=>new (mr.drive.getFileConstructor(x))(x));
-    mr.define(this,'parents',{value:parents});//cache it
-    return parents;
-  };mr.define(mr.drive.file.prototype,'parents',{getter:mr.drive.file.prototype.getParents});
-  
-  /**
-   * file.prop(propName,setValue) - Get all the properties, or a specific property by name and set it if a new value is provided.
-   * @param propName {undefined|string} - Optinal name of a property; or nothing to get all properties.
-   * @param setValue {undefined|null|string} - Optional value to set, or null to delete the property.
-   * @return {Object|string|null} - Object containing all the properties, or a string value for a single property, or null when setting / deleting a property.
-   */
-  mr.drive.file.prototype.property = mr.drive.file.prototype.prop = function(propName,setValue){
-    if(false===drive.isAuthorized) return log.error('ss.prop: not yet authorized!');
-    const propService = PropertiesService.getDocumentProperties();
-    if(mr.is.undef(propName)) return propService.getProperties();
-    if(mr.is.undef(setValue)) return propService.getProperty(propName);
-    if(null===setValue) return propService.deleteProperty(propName) && null;
-    return propService.setProperty(propName,setValue) && null;
-  }//prop
-  
-  //////////////////////////////////////////////
-  //////////////////////////////////////////////
-  // drive.folder
-  //////////////////////////////////////////////
-  //////////////////////////////////////////////
-  
-  /**
-   * new drive.folder( _folder ) - Construct a drive.folder object.
-   * @param _folder {Folder} - The google drive folder object to base this new drive.folder on.
-   * @return {drive.folder}
-   */
-  mr.drive.folder = function(_folder){
-    mr.assert(new.target,'mr.drive.folder must be called with new');
-    const _id = mr.is.obj(_folder) ? _folder.getId() : _folder;
-    //first look in the cache
-    if(!mr.drive.folder.cache) mr.drive.folder.cache = {};
-    if(mr.drive.folder.cache[_id]) return mr.drive.folder.cache[_id];//cache hit
-    //cache miss, so make a new one
-    _folder = mr.is.obj(_folder) && _folder || tryFail(
-      ()=>DriveApp.getFolderById(_id), //try
-      ()=>DriveApp.getRootFolder()     //fail
-    );//tryFail
-    Object.defineProperty(this,'_folder',{value:_folder});//make our private member public but read-only
-    for(let x in _folder) this[x] = mr.is.func(_folder[x]) ? partial({thisArg:_folder,func:x}) : _folder[x];//inherit from base
-    //add new folder to cache
-    return mr.drive.folder.cache[_id] = this;
-  }//drive.folder
-
-  /**
-   * folder.files - First use will fetch the folder's files and cache it; subsequent uses gets the cached result.
-   * folder.getFiles() - Always gets the current files and caches it as 'files'.
-   * @return {[drive.file]}
-   */
-  mr.drive.folder.prototype.getFiles = function(){
-    const files = mr.as.arr(this._folder.getFiles()).map(x=>new (mr.drive.getFileConstructor(x))(x));
-    mr.define(this,'files',{value:files});//cache it
-    return files;
-  };mr.define(mr.drive.folder.prototype,'files',{getter:mr.drive.folder.prototype.getFiles});
-  
-  /**
-   * folder.folders - First use will fetch the folder's folders and cache it; subsequent uses gets the cached result.
-   * folder.getFolders() - Always gets the current folders and caches it as 'folders'.
-   * @return {[drive.folder]}
-   */
-  mr.drive.folder.prototype.getFolders = function(){
-    const folders = mr.as.arr(this._folder.getFolders()).map(x=>new mr.drive.folder(x));
-    mr.define(this,'folders',{value:folders});//cache it
-    return folders;
-  };mr.define(mr.drive.folder.prototype,'folders',{getter:mr.drive.folder.prototype.getFolders});
-  
-  //////////////////////////////////////////////
-  //////////////////////////////////////////////
-  // drive.ss
-  //////////////////////////////////////////////
-  //////////////////////////////////////////////
-
-  /**
-   * new drive.ss( _ss ) - Construct a ss object.
-   * @param _ss {Spreadsheet} - The google drive spreadsheet object to base this drive.ss on.
-   * @return {Object}
-   */
-  mr.drive.ss = function(_ss){
-    mr.assert(new.target,'mr.drive.ss must be called with new');
-    const _id = mr.is.obj(_ss) ? _ss.getId() : _ss;
-    //first look in the cache
-    if(!mr.drive.ss.cache) mr.drive.ss.cache = {};
-    if(mr.drive.ss.cache[_id]) return mr.drive.ss.cache[_id];//cache hit
-    //cache miss, so make a new one
-    mr.log('making new ss');
-    _ss = mr.is.obj(_ss) && _ss || SpreadsheetApp.openById(_id);
-    mr.drive.file.call(this,_id);//base class
-    Object.defineProperty(this,'_ss',{value:_ss});//make our private member public but read-only
-    for(let x in _ss) this[x] = mr.is.func(_ss[x]) ? partial({thisArg:_ss,func:x}) : _ss[x];//inherit from base
-    //add new ss to cache
-    return mr.drive.ss.cache[_id] = this;
-  };mr.drive.ss.prototype = Object.create(mr.drive.file.prototype);
-  
-  /**
-   * drive.ss.active - First use will get the active spreadsheet and cache it; subsequent uses gets the cached result.
-   * drive.ss.getActive() - Always gets the current active spreadsheet and caches it as 'active'.
-   * @return {drive.ss}
-   */
-  mr.drive.ss.getActive = function(){
-    const active = new mr.drive.ss(SpreadsheetApp.getActive());
-    mr.define(mr.drive.ss,'active',{value:active});//cache it
-    return active;
-  };mr.define(mr.drive.ss,'active',{getter:mr.drive.ss.getActive});
-  
-  /**
-   * ss.sheets - First use will get the sheets and cache it; subsequent uses gets the cached result.
-   * ss.getSheets() - Always gets the current sheets and caches it as 'sheets'.
-   * @return {[drive.ss.sheet]}
-   */
-  mr.drive.ss.prototype.getSheets = function(){
-    const sheetsArray = this._ss.getSheets();
-    let sheets = {length:sheetsArray.length};
-    sheetsArray.forEach((x,i)=>
-      sheets[i] = sheets[x.getName()] = sheets[x.getName().camel] = new mr.drive.ss.sheet(x)
-    );//forEach
-    mr.define(this,'sheets',{value:sheets});//cache it
-    return sheets;
-  };mr.define(mr.drive.ss.prototype,'sheets',{getter:mr.drive.ss.prototype.getSheets});
-
-  /**
-   * ss.get(mode,...requests|[request]) - Get data from the sheet.
-   * @param {name|a1} request - name|a1 | {request:name|a1, mode:mode}
-   * @param {string} name - Named range, must not contain !.
-   * @param {String} a1 - Address in A1 notation with the sheet name, such as 'regs!A1:C5'.
-   * @param {undefined|string} mode - From the enum ValueRenderOption, defaults to 'FORMULA'.
-   * @example ss.get(['foo','regs!$A$1',{request:'bar',mode:'FORMULA'}],'FORMATTED_VALUE')
-   * @return [*] - Array of same size as requests with retrieved values.
-   */
-  mr.drive.ss.prototype.get = function(mode='FORMULA',requests=[]){
-    if(!mr.is.arr(requests)) requests = [requests];
-    requests = requests.map((x,i)=>{
-      if(!mr.is.obj(x)) return {request:x,mode:mode,index:i};
-      if(mr.is.str(x.mode)) return {request:x.request,mode:x.mode,index:i};
-      return {request:x.request,mode:mode,index:i};
-    },this).sort((x,y)=>x.mode>y.mode ? 1 : -1);
-    let responses = [];
-    requests.forEach((x,i)=>{
-      if(i && requests[i-1].mode!==x.mode){
-        var prevIndex = responses.length && responses[i-1].index || 0;
-        var curResponses = this.batchGet(requests.split(prevIndex,i-1));
-        responses = responses.concat(curResponses.map(y,j => ({response:y,index:prevIndex+j})));
-      }//if
-      
-    },this);//forEach
-    
-    if(mr.drive.ss.useSheetsAPI){
-      var reqs = requests.map(x,i => ({value:x,index:i}))
-                         .filter(x => x.value.request.has('!'));
-      var batchResults = this.batchGet(reqs);
-      return requests.map(function(x,i){
-        //plug in results from batchGet
-        var matches = reqs.filter(y,j => i===y.index);
-        if(matches.length) return matches.uno().value;
-        //CAN WE LOOP THROUGH TWICE, FIRST TIME DOING BATCHGET (IF ENABLED) THEN
-        //DOING GETBYNAME?
-        var r = this.getRangeByName(x.value);
-        if('FORMULA'===mode) return r.getFormula();
-        if('FORMATTED_VALUE'===mode) return r.getDisplayValue();
-        mr.assert('UNFORMATTED_VALUE'===mode,'ss.get: invalid mode: '+mode);
-        return r.getValue();
-      },this);//map
-    }//if
-    return requests.map(function(x){
-      var r = x.request.has('!') ? this.getRange(x.request) : this.getRangeByName(x.request);
-      if('FORMULA'===x.mode) return r.getFormula();
-      if('FORMATTED_VALUE'===x.mode) return r.getDisplayValue();
-      mr.assert('UNFORMATTED_VALUE'===x.mode,'ss.get: invalid mode: '+mode);
-      return r.getValue();
-    },this);//map
-  }//drive.ss.batchGet
-  
-  /**
-   * Read data from the given sheets, or all sheets, into tables accessed via ss.sheets[0].table.
-   * ss.read(undefined | mode, undefined | [reference])
-   * ss.read(undefined | mode, {reference}, {reference}, {reference}, ...)
-   * @param reference : {sheet:sheet, columns:undefined | [column]}
-   * @param sheet : {id:number | index:number | name:string}
-   * @param column : {letter:string | number:number | heading:string}
-   * @example ss.read('FORMULA',)
-   */
-  mr.drive.ss.prototype.read = function({mode='FORMATTED_VALUE',sheets=this.sheets}){
-    sheets.forEach((x,i)=>{
-      let headings;
-      const s = this[x.id || x.index || x.name];
-      mr.assert(s,'ss.read: Invalid sheet reference!');
-      if(s.tableColumns.length) return mr.log.warn('ss.read: Sheet "'+s.name+'" has already been read. Not reading again.');
-      //always read the headings separately
-      //TODO: batch up all sheets' requests for headings into one batchGet
-      //mr.log('REQUEST: \''+s.properties.name+'\'!1:1');
-      if(!mr.drive.ss.useSheetsAPI) headings = s.properties.sheet.getRange('1:1').getValues()[0];
-      else{
-        const headingsResponse = this.batchGet({
-          requests : "'"+s.name+"'!1:1",
-          mode     : 'FORMATTED_VALUE'
-        });//batchGet
-        headings = (  headingsResponse.valueRanges[0].values              //if there are values
-                   && headingsResponse.valueRanges[0].values[0][0].length //if the first heading is non-blank
-                   ) ? headingsResponse.valueRanges[0].values[0] : [];
-      }//else
-      mr.assert(s.tableColumns.length===headings.length,'ss.read: headings changed! TODO: update old headings');
-      headings.forEach((y,j)=>mr.assert(y===s.tableColumns[j],'ss.read: headings changed! TODO: update old headings'),this);
-      s.tableColumns = headings.map((y,j)=>({heading:y}),this);
-      //determine which columns we are supposed to read
-      //var cols = 
-      
-      //s.headings MUST have blanks for columns not included in read()!!!!!!!!!
-      
-      cols = sheets[i].columns;
-      if(isUndefined(cols)) cols = headings.map((y,j)=>({index:j+1}));
-      else if(!isArray(cols)){
-        //treat object as if it were an array
-        if(isObject(cols)) cols = Object.keys(cols).map(y=>cols[y]);
-        else cols = [cols];
-      }//if
-      mr.assert(0<=cols.length,'invalid columns array');
-      colsCache.push(cols);
-      //build our requests
-      requests.push("'"+s.properties.name+"'!1:1");//always get the headings
-      for(let j=0;j<cols.length;++j){
-        c = cols[j].letter||cols[j].index||cols[j].heading||cols[j];
-        //if(!c) throw new Error('invalid column reference: '+JSON.stringify(cols[j]));
-        colLetter = colToLetter(c,headings);
-        colNumber = colToNum(c,headings);
-        //mr.log('cols[j].letter: '+colLetter);
-        //mr.log('cols[j].number: '+colNumber);
-        //mr.log('cols[j]: '+JSON.stringify(cols[j]));
-        mr.assert(colLetter,'failed to convert column to letter');
-        mr.assert(colNumber,'failed to convert column to number');
-        mr.assert(mr.is.undef(s[colLetter]),'attempting to overwrite previously read sheet data');
-        const requestDesc = "'"+s.properties.name+"'!"+colLetter+'1:'+colLetter;
-        //mr.log('REQUEST: '+requestDesc);
-        requests.push(requestDesc);
-        s.properties.colsRead.push(colNumber);
-      }//for
-    },this);//forEach
-  }//read
-  
-mr.drive.ss.prototype.read = function(args){
-  var mode = (args && args.mode) || 'FORMATTED_VALUE';
-  var sheets = null;
-  if(isUndefined(args) || isUndefined(args.sheets)) sheets = this.properties.sheets.map(function(x){return {name:x.properties.name}});
-  else if(isObject(args)) sheets = isArray(args.sheets) ? args.sheets : [args.sheets];
-  else if(isArray(args))  sheets = args;
-  else throw new Error('ss.read: Unexpected args');
-  var i,j,k,s,headings,numRows,numCols,cols,c,colLetter,colNumber;
-  var colsCache = [];
-  var requests = [];
-  for(i=0;i<sheets.length;++i){
-    s = this[sheets[i].name || sheets[i].properties.name || sheets[i].index];
-    mr.assert(s,'ss.read: Invalid sheet reference!');
-    if(s.properties.colsRead.length){
-      mr.log.warn('ss.read: Sheet "'+s.properties.name+'" has already been read. Not reading again.');
-      return this;
-    }//if
-    //always read the headings separately
-    //TODO: batch up all sheets' requests for headings into one batchGet
-    //mr.log('REQUEST: \''+s.properties.name+'\'!1:1');
-    var useSheetsAPI = true;
-    if(useSheetsAPI){
-      var headingsResponse = this.batchGet({
-        requests : "'"+s.properties.name+"'!1:1",
-        mode     : 'FORMATTED_VALUE'//mode
-      });//batchGet
-      headings = (
-        headingsResponse.valueRanges[0].values &&           //if there are values
-        headingsResponse.valueRanges[0].values[0][0].length //if the first heading is non-blank
-      ) ? headingsResponse.valueRanges[0].values[0] : [];
+      result.valueOf = () => result.letter;//you gave me a number so here's a letter
     }else{
-      headings = s.properties.sheet.getRange('1:1').getValues()[0];
-    }//else
-    for(j=0;j<s.properties.headings.length;++j){
-      if(j>=headings.length) break;
-      mr.assert(s.properties.headings[j]===headings[j],'headings changed! TODO: update old headings');
-    }//for
-    s.properties.headings = headings;
-    //mr.log('sheet '+s.properties.name.toCamelCase()+' has '+headings.length+' headings:');
-    //headings.forEach(function(y,j){mr.log('        '+j+': '+y)});
-    //determine which columns we are supposed to read
-    cols = sheets[i].columns;
-    if(isUndefined(cols)) cols = headings.map(function(y,j){return {index:j+1}});
-    else if(!isArray(cols)){
-      //treat object as if it were an array
-      if(isObject(cols)) cols = Object.keys(cols).map(function(y){return cols[y]});
-      else cols = [cols];
-    }//if
-    mr.assert(0<=cols.length,'invalid columns array');
-    colsCache.push(cols);
-    //build our requests
-    requests.push("'"+s.properties.name+"'!1:1");//always get the headings
-    for(j=0;j<cols.length;++j){
-      c = cols[j].letter||cols[j].index||cols[j].heading||cols[j];
-      //if(!c) throw new Error('invalid column reference: '+JSON.stringify(cols[j]));
-      colLetter = colToLetter(c,headings);
-      colNumber = colToNum(c,headings);
-      //mr.log('cols[j].letter: '+colLetter);
-      //mr.log('cols[j].number: '+colNumber);
-      //mr.log('cols[j]: '+JSON.stringify(cols[j]));
-      mr.assert(colLetter,'failed to convert column to letter');
-      mr.assert(colNumber,'failed to convert column to number');
-      mr.assert(mr.is.undef(s[colLetter]),'attempting to overwrite previously read sheet data');
-      var requestDesc = "'"+s.properties.name+"'!"+colLetter+'1:'+colLetter;
-      //mr.log('REQUEST: '+requestDesc);
-      requests.push(requestDesc);
-      s.properties.colsRead.push(colNumber);
-    }//for
-  }//for
-  var response = this.batchGet({requests:requests,mode:mode});
-  mr.assert(response,'ss.read: Failed to read!');
-  var curHeading,curAbbr,responseValues;
-  for(i=0;i<sheets.length;++i){
-    s = this[sheets[i].name || sheets[i].properties.name || sheets[i].index];
-    //numRows = profile(function(){return s.getNumRows()},'getNumRows');
-    cols = colsCache[i];
-    //replace undefined values (blank cells) with empty strings
-    responseValues = response.valueRanges[0].values;
-    if(!responseValues) responseValues = response.valueRanges[0].values = [''];
-    cols.forEach(function(y,j){
-      if(undefined!==responseValues[j]) return;//continue;
-      responseValues.push('');
-    });//forEach
-    cols.forEach(function(y,j){
-      responseValues = response.valueRanges[j+1].values;
-      if(!responseValues) responseValues = response.valueRanges[j+1].values = [''];
-    });//forEach
-    /*headings = */response.valueRanges.shift().values[0];//get the 1:1 request
-    //if(!s.properties.headings || 1>s.properties.headings.length) s.properties.headings = headings;
-    headings = s.properties.headings;
-    cols.forEach(function(y,j){
-      c = y.letter||y.index||y.heading||y;
-      colLetter = colToLetter(c,s.properties.headings);
-      colNumber = colToNum(c,s.properties.headings);
-      responseValues = response.valueRanges.shift().values.map(function(z){return z[0]});
-      //for(k=0;k<responseValues.length;++k) responseValues[k] = responseValues[k][0];
-      curHeading = s.properties.headings[s.properties.colsRead[j]-1];
-      curAbbr = curHeading.toCamelCase();
-      //mr.log('reading sheet '+s.properties.name+' column: '+curHeading+'  ('+curAbbr+')');
-      s.properties.original[curHeading] = s.properties.original[colLetter] = s.properties.original[colNumber] = clone(responseValues);
-      //make sure our variable names don't collide with our other names
-      var hasHeading  = -1;
-      var hasAbbr     = -1;
-      var hasNickname = 0;
-      headings.forEach(function(z,k){
-        //mr.log(z+' =?= '+curHeading+' ⇒ '+(z===curHeading)+' ⇒ headingCount: '+hasHeading);
-        if(z===curHeading) ++hasHeading;
-        if(z.toCamelCase()===curAbbr) ++hasAbbr;
-      });//forEach
-      Object.keys(s).forEach(function(z,k){
-        mr.assert(z!==colLetter,'mr.drive.ss.read: Column letter "'+colLetter+'" is already defined!');
-        mr.assert(z!==colNumber,'mr.drive.ss.read: Column number "'+colNumber+'" is already defined!');
-        if(!isUndefined(curHeading) && z===curHeading) ++hasHeading;
-        if(!isUndefined(y.nickname) && z===y.nickname) ++hasNickname;
-        if(!isUndefined(curAbbr   ) && z===curAbbr   ) ++hasAbbr;
-      });//forEach
-      responseValues.number   = colNumber;
-      responseValues.letter   = colLetter;
-      responseValues.heading  = curHeading;
-      responseValues.abbr     = curAbbr;
-      responseValues.nickname = y.nickname;
-      s[colLetter] = s[colNumber] = responseValues;//these are non-negotiable
-      if(!hasHeading ) s[curHeading] = responseValues; //else mr.log.warn('ss.read: '+s.properties.name+'!'+colLetter+' cannot be assigned heading: ' +curHeading);
-      if(!hasAbbr    ) s[curAbbr   ] = responseValues; //else mr.log.warn('ss.read: '+s.properties.name+'!'+colLetter+' cannot be assigned abbr: '    +curAbbr   );
-      if(!hasNickname) s[y.nickname] = responseValues; //else mr.log.warn('ss.read: '+s.properties.name+'!'+colLetter+' cannot be assigned nickname: '+y.nickname);
-    });//forEach
-    //mr.log('read: s.properties.name: '+s.properties.name);
-  }//for
-  return this;
-}//mr.drive.ss.read
-
-mr.drive.ss.prototype.write = function(args){
-  var i,j,n,m,sheetKeys,ssKeys;
-  mr.log('write('+JSON.stringify(args)+')');
-  if(!args) args = {};
-  if(args.sheets) ;//args.sheets = clone(args.sheets);
-  else{
-    args.sheets = this.properties.sheets;//when no args are specified, build args that request every valid sheet
-    //mr.log('sheets.length: '+args.sheets.length);
-/*  ssKeys = getObjectKeys(this);
-    for(i=0;i<ssKeys.length;++i){
-      n = Number(ssKeys[i]);
-      if(isNaN(n) || n%1!=0) continue;
-      args.sheets.push({index:n});
-    }//for
-*/}//if
-  if(!isArray(args.sheets)) args.sheets = [args.sheets];
-  var valueRanges = [];
-  var k,s,numRows,cols,c,colLetter,colNumber,isDirty,newValueRange;
-  var requests = [];
-  var req,reqUpdate,reqAdjRows,gridCoord,value,valueOld,userValue,maxRows,rowsToAdj;
-  for(i=0;i<args.sheets.length;++i){
-    var curSheet = args.sheets[i];
-    var sheetRef = curSheet.name || curSheet.index || curSheet.properties.name || curSheet.properties.index;
-    s = this[sheetRef];
-    mr.assert(s,'invalid sheet reference');
-    if(1>s.properties.colsRead.length) continue;//no data in this sheet
-    cols = curSheet.columns;
-    if(!cols){
-      //when no columns are specified, build args that request every loaded column
-      curSheet.columns = [];
-      s.properties.colsRead.forEach(function(y){
-        curSheet.columns.push({index:y});
-      });//forEach
-      //for(j=0;j<s.properties.colsRead.length;++j){
-      //  curSheet.columns.push({index:s.properties.colsRead[j]});
-      //}//for
-      cols = curSheet.columns;
-    }//if
-    if(!isArray(cols)){
-      //treat object as if it were an array
-      if(isObject(cols)) cols = Object.keys(cols).map(function(x){return cols[x]});
-      else cols = [cols];
-    }//if
-    //if(0<cols.length) mr.log('write: '+s.properties.name+'.cols('+cols.length+'): '+JSON.stringify(cols));
-    //get the max num of rows across all columns
-    maxRows = 0;
-    for(j=0;j<cols.length;++j){
-      c = cols[j].letter||cols[j].index||cols[j].heading||cols[j];
-      //if(!c) throw new Error('invalid column reference');
-      colLetter = colToLetter(c,s.properties.headings);
-      colNumber = colToNum(c,s.properties.headings);
-      mr.assert(colLetter,'failed to convert column to letter');
-      mr.assert(colNumber,'failed to convert column to number');
-      mr.assert(mr.is.def(s[colLetter]),'attempting to write sheet data that has not been read in yet');
-      //mr.log('ss.write: '+s.properties.name+'['+c+'].length: '+s[colLetter].length);
-      maxRows = Math.max(maxRows/*||0*/,s[colLetter].length);
-    }//for
-    numRows = s.properties.maxRows;
-    //make a request to append/delete rows if necessary
-    var headingsOnly = curSheet.headingsOnly || (undefined==curSheet.headingsOnly && args.headingsOnly);
-    if(headingsOnly) maxRows = 1;
-    else if(numRows<maxRows){
-      reqAdjRows = Sheets.newAppendDimensionRequest();
-      reqAdjRows.sheetId   = s.properties.id;
-      reqAdjRows.dimension = 'ROWS';
-      rowsToAdj = maxRows - numRows;
-      reqAdjRows.length = rowsToAdj;
-      numRows = s.properties.numRows = maxRows;
-      //add the final request to our list
-      req = Sheets.newRequest();
-      req.appendDimension = reqAdjRows;
-      //mr.log('REQUEST: '+s.properties.name+'.appendDimension('+rowsToAdj+' ROWS)');
-      requests.push(req);
-    }else if(numRows>maxRows){
-      reqAdjRows = Sheets.newDeleteDimensionRequest();
-      reqAdjRows.range = {};
-      reqAdjRows.range.sheetId = s.properties.id;
-      reqAdjRows.range.dimension = 'ROWS';
-      reqAdjRows.range.startIndex = maxRows;
-      reqAdjRows.range.endIndex = numRows;
-      rowsToAdj = numRows - maxRows;
-      numRows = s.properties.numRows = maxRows;
-      //add the final request to our list
-      req = Sheets.newRequest();
-      req.deleteDimension = reqAdjRows;
-      //mr.log('REQUEST: '+s.properties.name+'.deleteDimension('+reqAdjRows.range.startIndex+':'+reqAdjRows.range.endIndex+' ['+rowsToAdj+' ROWS])');
-      requests.push(req);
-    }//if
-    for(j=0;j<cols.length;++j){
-      c = cols[j].letter||cols[j].index||cols[j].heading;
-      colLetter = colToLetter(c,s.properties.headings);
-      colNumber = colToNum(c,s.properties.headings);
-      //make requests to update changed cells
-      for(k=0;k<maxRows;++k){
-        //if(s[colLetter].length<=k) s[colLetter].set(k,'');
-        value = s[colLetter][k];
-        valueOld = s.properties.original[colLetter][k];
-        if(value===valueOld){
-          //mr.log('write('+s.properties.name+'!'+colLetter+k+'): UNCHANGED');
-          continue;//only update dirty values
-        }//if
-        //mr.log('write('+s.properties.name+'!'+colLetter+k+'): CHANGED: '+value);
-        gridCoord = Sheets.newGridCoordinate();
-        gridCoord.sheetId = s.properties.id;
-        gridCoord.rowIndex = k;
-        gridCoord.columnIndex = colNumber-1;
-        reqUpdate = Sheets.newUpdateCellsRequest();
-        reqUpdate.fields = 'userEnteredValue';
-        reqUpdate.start = gridCoord;
-        reqUpdate.rows = [];
-        userValue = Sheets.newExtendedValue();
-        if(type(value).isString && '='===value[0])  userValue.formulaValue = value;
-        else if(type(value).isBoolean)              userValue.boolValue    = value;
-        else if(type(value).isNumber)               userValue.numberValue  = value;
-        //else if(isNaN(value))                     userValue.numberValue  = Number(value);//try to coerce strings of numbers into numbers
-        else                                        userValue.stringValue  = ''+value;
-        reqUpdate.rows.push(Sheets.newRowData());
-        reqUpdate.rows.last().values = [];
-        reqUpdate.rows.last().values.push(Sheets.newCellData());
-        reqUpdate.rows.last().values.last().userEnteredValue = userValue;
-        //add the final request to our list
-        req = Sheets.newRequest();
-        req.updateCells = reqUpdate;
-        //mr.log('REQUEST: '+s.properties.name+'.updateCells('+colLetter+(k+1)+')');
-        requests.push(req);
+      assert(is.str(col));
+      result.letter = col;
+      result.number = 0;
+      for(let i=0;i<col.length;++i){
+        result.number += (col.charCodeAt(i) - (asciiA-1)) * Math.pow(26,col.length - i - 1);
       }//for
-    }//for
-  }//for
-  ////mr.log('REQUESTs: '+JSON.stringify(requests));
-  return this.batchSet(requests);
-}//mr.drive.ss.write
-
-  //////////////////////////////////////////////
-  //////////////////////////////////////////////
-  // drive.sheet
-  //////////////////////////////////////////////
-  //////////////////////////////////////////////
-  
-  /**
-   * new drive.ss.sheet( _sheet ) - Construct a sheet object.
-   * @param _sheet {Sheet}
-   * @return drive.ss.sheet
-   */
-  mr.drive.ss.sheet = function(_sheet){
-    mr.assert(new.target,'mr.drive.ss.sheet must be called with new');
-    Object.defineProperty(this,'_sheet',{value:_sheet});//make our private member public but read-only
-    for(let x in _sheet) this[x] = mr.is.func(_sheet[x]) ? partial({thisArg:_sheet,func:x}) : _sheet[x];//inherit from base
-  };//drive.ss.sheet
-  
-  /**
-   * sheet.column(_column) - Gets a column object for the given column reference.
-   * @param _column : reference | colNumber | colLetter | colHeading
-   * @param reference : {letter:string | number:number | heading:string}
-   * @param colNumber : number - Column number, starting with 1.
-   * @param colLetter : string - Column letter in absolute A1 notation, must include $.
-   * @param colHeading : string - Value of the first row in the column.
-   * @example sheet.column('ID')
-   * @return {letter:string,number:number,heading:string}
-   */
-  mr.drive.ss.sheet.prototype.getColumn = mr.drive.ss.sheet.prototype.getCol = function(_column){
-    let colLetter,colNumber,colHeading;
-    if(mr.is.obj(_column)) _column = _column.letter || _column.number || _column.heading;
-    if(mr.is.num(_column) && 0<_column){
-      colNumber = _column;
-      colLetter = colToLetter(colNumber);
-      colHeading = this.headings[colNumber-1];
-    }else if(mr.is.str(_column)){
-      if('$'===_column[0]){
-        colLetter = _column;
-        colNumber = colToNumber(colLetter);
-        colHeading = this.headings[colNumber-1];
-      }else{
-        colHeading = _column;
-        colNumber = colToNumber(_column,this.headings);
-        colLetter = colToLetter(colNumber);
-      }//else
-    }else throw new Error('sheet.getColumn: invalid column reference: '+_column);
-    return {letter:colLetter,number:colNumber,heading:colHeading};
-  }//getColumn
-  
-  /**
-   * sheet.ss - First use will get the sheet's parent spreadsheet and cache it; subsequent uses gets the cached result.
-   * sheet.getSpreadsheet() - Always gets the sheet's parent spreadsheet and caches it as 'ss'.
-   * @return drive.ss
-   */
-  mr.drive.ss.sheet.prototype.getSpreadsheet = mr.drive.ss.sheet.prototype.getSS = mr.drive.ss.sheet.prototype.getParent = function(){
-    const ss = this._sheet.getParent();
-    mr.define(this,['ss','parent','spreadsheet'],{value:ss});//cache it
-    return ss;
-  };mr.define(mr.drive.ss.sheet.prototype,['ss','parent','spreadsheet'],{getter:mr.drive.ss.sheet.prototype.getSpreadsheet});
-  
-  /**
-   * sheet.id - First use will get the sheet id and cache it; subsequent uses gets the cached result.
-   * sheet.getId() - Always gets the current sheet id and caches it as 'id'.
-   * @return string
-   */
-  mr.drive.ss.sheet.prototype.getSheetId = mr.drive.ss.sheet.prototype.getId = function(){
-    const id = this._sheet.getSheetId();
-    mr.define(this,['sheetId','id'],{value:id});//cache it
-    return id;
-  };mr.define(mr.drive.ss.sheet.prototype,['sheetId','id'],{getter:mr.drive.ss.sheet.prototype.getId});
-  
-  /**
-   * sheet.name - First use will get the sheet name and cache it; subsequent uses gets the cached result.
-   * sheet.getName() - Always gets the current sheet name and caches it as 'name'.
-   * @return string
-   */
-  mr.drive.ss.sheet.prototype.getName = function(){
-    const name = this._sheet.getName();
-    mr.define(this,'name',{value:name});//cache it
-    return name;
-  };mr.define(mr.drive.ss.sheet.prototype,'name',{getter:mr.drive.ss.sheet.prototype.getName});
-  
-  /**
-   * sheet.rows - First use will get the sheet rows and cache it; subsequent uses gets the cached result.
-   * sheet.getRows() - Always gets the current sheet rows and caches it as 'rows'.
-   * @return {max:number,last:number}
-   */
-  mr.drive.ss.sheet.prototype.getRows = function(){
-    const rows = {
-      max  : this._sheet.getMaxRows(),
-      last : this._sheet.getLastRow()
-    };//rows
-    mr.define(this,'rows',{value:rows});//cache it
-    return rows;
-  };mr.define(mr.drive.ss.sheet.prototype,'rows',{getter:mr.drive.ss.sheet.prototype.getRows});
-  
-  /**
-   * sheet.cols - First use will get the sheet columns and cache it; subsequent uses gets the cached result.
-   * sheet.getCols() - Always gets the current sheet columns and caches it as 'cols'.
-   * @return {max:number,last:number}
-   */
-  mr.drive.ss.sheet.prototype.getCols = function(){
-    const cols = {
-      max  : this._sheet.getMaxColumns(),
-      last : this._sheet.getLastColumn()
-    };//cols
-    mr.define(this,'cols',{value:cols});//cache it
-    return cols;
-  };mr.define(mr.drive.ss.sheet.prototype,'cols',{getter:mr.drive.ss.sheet.prototype.getCols});
-  
-  /**
-   * sheet.form - First use will get the sheet's linked form and cache it; subsequent uses gets the cached result.
-   * sheet.getForm() - Always gets the current sheet's linked form and caches it as 'form'.
-   * @return drive.form
-   */
-  mr.drive.ss.sheet.prototype.getForm = function(){
-    const form = new drive.form(this._sheet.getFormUrl());
-    mr.define(this,'form',{value:form});//cache it
-    return form;
-  };mr.define(mr.drive.ss.sheet.prototype,'form',{getter:mr.drive.ss.sheet.prototype.getForm});
-  
-  /**
-   * sheet.read( requests ) - Read data for this sheet only.
-   * @param requests : undefined | {columns:[columnReference]} | [columnReference]
-   * @param columnReference : {letter:string | number:number | heading:string}
-   */
-  mr.drive.ss.sheet.prototype.read = function(args){
-    args = args||{};
-    if(mr.is.arr(args)) args = {columns:args};
-    args.name = this.name;
-    this.ss.read(args);
-  }//drive.ss.sheet.read
-  
-  /**
-   * sheet.write( requests ) - Write data for this sheet only.
-   * @param requests : undefined | {columns:[columnReference]} | [columnReference]
-   * @param columnReference : {letter:string | number:number | heading:string}
-   */
-  mr.drive.ss.sheet.prototype.write = function(args){
-    args = args||{};
-    if(mr.is.arr(args)) args = {columns:args};
-    args.name = this.name;
-    this.ss.write(args);
-  }//drive.ss.sheet.write
-  
-  /**
-   * sheet.get( name | a1 ) - Get a range by name or address (SLOW!)
-   * @param name : string - Name of a defined named range.
-   * @param a1 : string - Range address in A1 notation (must be absolute including $ symbols).
-   * @return Range
-   */
-  mr.drive.ss.sheet.prototype.get = function(args){
-    if(!mr.is.str(args)) return log.error('sheet.get: invalid argument');
-    const isAddress = 1<args.indexOf('$') && parseFloats(args).length;
-    if(!isAddress) return this.getRangeByName(args);
-    if(!args.has('!')) args = this.name+'!'+args;
-    return this.getRange(args);
-  }//drive.ss.sheet.get
-  
-  /**
-   * sheet.deleteRows( rows ) - Delete the rows indicated by the provided list.
-   * @param rows : [number] - Array of row numbers to delete.
-   */
-  mr.drive.ss.sheet.prototype.deleteRows = function(indices){
-    if(!mr.is.arr(indices)) indices = [indices];
-    indices.sort((a,b)=>b-a);//sorts in place, highest-to-lowest
-    //this.colsRead.forEach(function(x){
-    //this.table.
-    for(let x in this.table){
-      indices.forEach(y=>this.table[x].splice(y,1),this);
-    }//for
-  }//drive.ss.sheet.deleteRows
-  
-  /**
-   * Update the sheet with the URLs of each response matching each row.
-   * @param {{url:{heading:'cow'},response:[{heading:'Timestamp'},{index:10}]}} args
-   *        Object containing all the necessary named parameters:{
-   *               url: {heading:string | letter:string | index:number}
-   *                    The column letter, number, or heading where the URL's are kept
-   *          response: [{heading:string | letter:string | index:number}]
-   *                    The columns (indicated by letters, numbers, or headings) where response data is kept.
-   *        }
-   * @return True if successful, false otherwise.
-   */
-  mr.drive.ss.sheet.prototype.updateResponseURLs = function(args){
-    args = args||{};
-    var i,j,c,answers,email,matches,oldUrl,newUrl;
-    var urlCol = args['urls']['index']||args['urls']['letter']||args['urls']['heading'];
-    var urls = this[urlCol];
-    mr.assert(urls,'invalid URL column');
-    var numRows = this.getNumRows();
-    var responseCols = args['responses'];
-    if(!mr.is.arr(responseCols)) responseCols = [responseCols];
-    var url = this.getFormUrl();
-    mr.assert(url,'sheet is not linked with a form');
-    //log('urls.length: '+urls.length);
-    var form = new drive.form({url:url});
-    for(i=1;i<numRows;++i){
-      oldUrl = urls[i]||'';
-      if(!args['overwrite'] && oldUrl) continue;
-      answers = [];
-      for(j=0;j<responseCols.length;++j){
-        c = responseCols[j]['index']||responseCols[j]['letter']||responseCols[j]['heading'];
-        mr.assert(c,'invalid response column');
-        answers.push({question:this[c][0],answer:this[c][i]});
-      }//for
-      matches = form.findResponse(answers);
-      //log('matches: '+matches.length);
-      if(0==matches.length)      newUrl = '<< NOT FOUND ('+i+') at '+timestamp({format:'M/D h:mm:ss.SSSA'})+' >>';
-      else if(1==matches.length) newUrl = matches[0];
-      else throw new Error('Multiple matches found');
-      if(0<=oldUrl.indexOf('<< NOT FOUND')){
-        if(0>newUrl.indexOf('<< NOT FOUND')) log({msg:'Response was found but it used to not exist!'});
-      }else if(''===oldUrl){
-        if(0<=newUrl.indexOf('<< NOT FOUND')) log({msg:'Response cannot be found'});
-      }else{
-        if(0<=newUrl.indexOf('<< NOT FOUND')) log({msg:'Response used to exist but can no longer be found!'});
-      }//else
-      urls.set(i,newUrl);
-    }//for
-  }//drive.ss.sheet.updateResponseURLs
-    
-  //////////////////////////////////////////////
-  //////////////////////////////////////////////
-  // api
-  //////////////////////////////////////////////
-  //////////////////////////////////////////////
-  
-  mr.api = {};
-  
-  //////////////////////////////////////////////
-  // api.sheets
-  //////////////////////////////////////////////
-  
-  mr.api.sheets                       = {};
-  mr.api.sheets.enabled               = true;
-  mr.api.sheets.quotas                = {};
-  mr.api.sheets.quotas.read           = {};
-  mr.api.sheets.quotas.read.throttle  = mr.partial({func:mr.api.sheets.throttle,args:[mr.api.sheets.quotas.read]});
-  mr.api.sheets.quotas.read.freq      = 1000;//milliseconds between requests
-  mr.api.sheets.quotas.read.last      = null;
-  mr.api.sheets.quotas.write          = {};
-  mr.api.sheets.quotas.write.throttle = mr.partial({func:mr.api.sheets.throttle,args:[mr.api.sheets.quotas.write]});
-  mr.api.sheets.quotas.write.freq     = 1000;//milliseconds between requests
-  mr.api.sheets.quotas.write.last     = null;
-  mr.api.sheets.throttle              = function(quota,requests){
-    const sleepDuration = Math.max(0,/*requests.length**/quota.freq - duration(quota.last).ms);
-    log('api.sheets.quotas.throttle: sleeping '+sleepDuration+'ms');
-    Utilities.sleep(sleepDuration);
-    quota.last = Date.now();
-  };//throttle
-  
-  /**
-   * Use the Sheets API to batch get data.
-   * api.sheets.batchGet({id,ranges,valueRenderOption,majorDimension,dateTimeRenderOption})
-   * @param id : string - Unique id of the spreadsheet.
-   * @param ranges : [string] - Array of addresses in A1 notation.
-   * @param valueRenderOption : undefined|string - Valid options: FORMATTED_VALUE,UNFORMATTED_VALUE,FORMULA; defaults to FORMULA.
-   * @param majorDimension : undefined|string - Valid options: ROWS,COLUMNS,DIMENSION_UNSPECIFIED; defaults to ROWS.
-   * @param dateTimeRenderOption : undefined|string - Valid options: FORMATTED_STRING,SERIAL_NUMBER; defaults to SERIAL_NUMBER.
-   * @example api.sheets.batchGet({id:'asdf1234',ranges:['regs!A1','regs!B3']})
-   * @return Response
-   */
-  mr.api.sheets.batchGet = function({id,ranges,valueRenderOption='FORMULA',majorDimension='ROWS',dateTimeRenderOption='SERIAL_NUMBER'}){
-    mr.assert(mr.api.sheets.enabled && mr.is.def(Sheets),'Sheets API not enabled');
-    const argsObj = arguments[0];
-    mr.api.sheets.quotas.read.throttle(ranges);
-    //mr.log('batchGet requests: '+JSON.stringify(p.ranges));
-    tryFail(
-      ()=>profile(()=>Sheets.Spreadsheets.Values.batchGet(id,argsObj),'Sheets.batchGet'),
-      (err)=>{
-        const msg = err.message+'\n\n'+err.stack;
-        const firstExclamation = err.message.indexOf('!');
-        if(0<=firstExclamation){
-          const sheetName = err.message.substring(err.message.indexOf("'")+1,firstExclamation-1);
-          const missingCol = err.message.right(err.message.indexOf(':',firstExclamation)+1);
-          msg = 'Please make sure you have a column named "'+missingCol+'" (case-sensitive) on the '+sheetName+' sheet.\n\n'+msg;
-        }//if
-        throw new Error(msg);
-      }//fail
-    );//tryFail
-  }//batchGet
-
-  /**
-   * api.sheets.batchUpdate({id,requests})
-   * @param id : string - Unique id of the spreadsheet.
-   * @param requests : [Request] - Array of Request objects created by the Sheets API and filled in by caller.
-   * @example api.sheets.batchUpdate('asdf1234',[Sheets.newRequest()])
-   * @return Response
-   */
-  mr.api.sheets.batchUpdate = function({id,requests}){
-    if(mr.api.sheets.enabled && mr.is.def(Sheets),'Sheets API not enabled');
-    mr.api.sheets.quotas.write.throttle(requests);
-    mr.log('sheets.batchUpdate('+JSON.stringify(requests)+')');
-    return profile(()=>Sheets.Spreadsheets.batchUpdate({requests:requests},id),'batchUpdate');
-  }//batchUpdate
-
-  ////////////////////////////////
-  ////////////////////////////////
-  // Prototype extensions
-  ////////////////////////////////
-  ////////////////////////////////
-  
-  ////////////////////////////////
-  // Array prototype
-  ////////////////////////////////
-  
-  /**
-   * array.last - Get the last element in this array.
-   */
-  if(Array.prototype.last) mr.log.warn('Array.prototype.last ALREADY EXISTS & IS BEING OVERWRITTEN');
-  Object.defineProperty(Array.prototype,'last',{get:()=>this[this.length-1]});
-  
-  /**
-   * array.set(index,value) - Set an element in the array but first ensure the array is grown to be at least this size.
-   * @param index : number - Where in the array to set.
-   * @param value : * - Value to set into the array.
-   * @return * - The new value of the element.
-   */
-  if(Array.prototype.set) mr.log.warn('Array.prototype.set ALREADY EXISTS & IS BEING OVERWRITTEN');
-  Object.defineProperty(Array.prototype,'set',{value: function(index,value){
-    this.length = Math.max(index+1,this.length);
-    return this[index] = value;
-  }});//set
-
-  /**
-   * array.count(value) - Count how many occurrences of the given value appear in this array.
-   * @param {*} value - Value to search for.
-   * @return {number}
-   */
-  if(Array.prototype.count) mr.log.warn('Array.prototype.count ALREADY EXISTS & IS BEING OVERWRITTEN');
-  Object.defineProperty(Array.prototype,'count',{value:function(value){return this.filter(x=>x===value).length}});
-
-  /**
-   * array.has(value) - Determine if this array contains at least one occurrence of the given value.
-   * @param {*} value - Value to search for.
-   * @return {boolean}
-   */
-  if(Array.prototype.has) mr.log.warn('Array.prototype.has ALREADY EXISTS & IS BEING OVERWRITTEN');
-  Object.defineProperty(Array.prototype,'has',{value:function(value){return !!this.count(value)}});
-  
-  /**
-   * array.uno(onFail) - Assert that this array is of size 1.
-   * @param onFail : undefined|function - Throw an error, or use the provided function on failure.
-   * @return * - The only element in the array.
-   */
-  if(Array.prototype.uno) mr.log.warn('Array.prototype.uno ALREADY EXISTS & IS BEING OVERWRITTEN');
-  Object.defineProperty(Array.prototype,'uno',{value:function(onFail){return this.expect(1,onFail)[0]}});
-  
-  /**
-   * array.expect(num,onFail) - Assert that this array is of the given size.
-   * @param num : number - The size this array should be.
-   * @param onFail : undefined|function - Throw an error, or use the provided function on failure.
-   * @return [*] - This array, for chaining.
-   */
-  if(Array.prototype.expect) mr.log.warn('Array.prototype.expect ALREADY EXISTS & IS BEING OVERWRITTEN');
-  Object.defineProperty(Array.prototype,'expect',{value:function(num,onFail){
-    //TODO: support an array of allowable expections
-    if(num!==this.length){
-      mr.assert(mr.is.func(onFail),'array expected '+num+' results but found '+this.length);
-      onFail(this);
+      result.valueOf = () => result.number;//you gave me a letter so here's a number
     }//if
-    return this;//for chaining
-  }});//expect
-  
-  /**
-   * array.filterIndex(func,thisArg) - Filter this array according to the given func and return indices.
-   * @param func : function - Filtering method.
-   * @param thisArg : undefined|* - ThisArg to use when calling array.map and array.filter.
-   * @return [number] - Array of indices that passed the filter.
-   */
-  if(Array.prototype.filterIndex) mr.log.warn('Array.prototype.filterIndex ALREADY EXISTS & IS BEING OVERWRITTEN');
-  Object.defineProperty(Array.prototype,'filterIndex',{value:function(func,thisArg){
-    return this.map   (function(x,i){return {value:x,index:i}},thisArg)
-               .filter(function(x,i){return   func(x.value,i)},thisArg)
-               .map   (function(x,i){return        x.index   },thisArg);
-  }});//filterIndex
-  
-  /**
-   * array.random() - Get a uniformly random value from this array.
-   * @return *
-   */
-  if(Array.prototype.random) mr.log.warn('Array.prototype.random ALREADY EXISTS & IS BEING OVERWRITTEN');
-  Object.defineProperty(Array.prototype,'random',{value:function(start=0,exclude=[]){return this[mr.rng.int({min:start,max:this.length,exclude:exclude})]}});
-  
-  /**
-   * array.random.gaussian() - Get a gaussian random value from this array.
-   * @return *
-   */
-  Object.defineProperty(Array.prototype.random,'gaussian',{value:function(start=0,exclude=[]){return this[mr.rng.int({min:start,max:this.length,exclude:exclude}).gaussian({min:start,max:this.length})]}});
-  
-  /**
-   * array.shuffle() - Shuffles array in place.
-   * @return [*]
-   */
-  if(Array.prototype.shuffle) mr.log.warn('Array.prototype.shuffle ALREADY EXISTS & IS BEING OVERWRITTEN');
-  Object.defineProperty(Array.prototype,'shuffle',{value:function(){
-    for(let i=this.length-1;i>0;--i){
-      const j = Math.floor(mr.rng()*(i+1));
-      const x = this[i];
-      this[i] = this[j];
-      this[j] = x;
-    }//for
-    return this;//for chaining
-  }});//shuffle
-  
-  /**
-   * array.unique - This array filtered to be unique.
-   * @return [*] - Unique array.
-   */
-  if(Array.prototype.unique) mr.log.warn('Array.prototype.unique ALREADY EXISTS & IS BEING OVERWRITTEN');
-  Object.defineProperty(Array.prototype,'unique',{get:()=>new Set([...this])});
-  
-  /**
-   * array.union(operand) - Union of this array with provided operand (unique values only).
-   * @param operand : [*] - Array to union with this one.
-   * @return [*] - Union array.
-   */
-  if(Array.prototype.union) mr.log.warn('Array.prototype.union ALREADY EXISTS & IS BEING OVERWRITTEN');
-  Array.prototype.union = function(operand){return [...new Set([...this,...operand])]}
-  
-  /**
-   * array.intersect(operand) - Intersection of this array with provided operand (unique values only).
-   * @param operand : [*] - Array to intersect with this one.
-   * @return [*] - Intersect array.
-   */
-  if(Array.prototype.intersect) mr.log.warn('Array.prototype.intersect ALREADY EXISTS & IS BEING OVERWRITTEN');
-  Array.prototype.intersect = function(operand){return [...new Set([...this.filter(x=>operand.has(x))])]}
+    return result;
+  }//column
 
   /**
-   * array.subtract(operand) - Subtraction of this array with provided operand (unique values only).
-   * @param operand : [*] - Array to subtract with this one.
-   * @return [*] - Subtraction array.
-   */
-  if(Array.prototype.subtract) mr.log.warn('Array.prototype.subtract ALREADY EXISTS & IS BEING OVERWRITTEN');
-  Array.prototype.subtract = function(operand){return [...new Set([...this.filter(x=>!operand.has(x))])]}
-  
-  /**
-   * array.mux(operand,...moreOperands) - Multiplex (i.e. Cartesian Product) of this array with provided operands.
-   * @param operand : [*] - Array to perform mux with this one.
-   * @param moreOperands : [*] - Any number of additional operands.
-   * @return [*] - Mux result array.
-   */
-  if(Array.prototype.mux) mr.log.warn('Array.prototype.mux ALREADY EXISTS & IS BEING OVERWRITTEN');
-  Object.defineProperty(Array.prototype,'mux',{value: function(operand,...moreOperands){
-    return operand ? this.cartesian(operand).mux(...moreOperands) : this;
-  }});//mux
-
-  /**
-   * array.cartesian(operand) - Cartesian product of this array with provided operand.
-   * @param operand : [*] - Array to perform cartesian product with this one.
-   * @return [*] - Cartesian product result array.
-   */
-  if(Array.prototype.cartesian) mr.log.warn('Array.prototype.cartesian ALREADY EXISTS & IS BEING OVERWRITTEN');
-  Object.defineProperty(Array.prototype,'cartesian',{value: function(operand){
-    return [].concat(...this.map(x=>operand.map(y=>[].concat(x,y))));
-  }});//cartesian
-  
-  /**
-   * array.mmult(operand) - Multiply this matrix with another;
-   * @param operand : [[number]] - Matrix of numbers where the number of columns equals the number of rows in this matrix.
-   * @return [[number]]
-   */
-  if(Array.prototype.mmult) mr.log.warn('Array.prototype.mmult ALREADY EXISTS & IS BEING OVERWRITTEN');
-  Object.defineProperty(Array.prototype,'mmult',{value: function(operand){
-    let result = [];
-    this.forEach((x,i)=>{
-      result[i] = [];
-      operand[0].forEach((y,j)=>{
-        result[i][j] = 0;
-        this[0].forEach((z,k)=>{
-          result[i][j] += this[i][k] * operand[k][j];//TODO: support non-numbers by using a callback func to specify operation? e.g: func(this[i][k],operand[k][j])
-        },this);//forEach
-      },this);//forEach
-    },this);//forEach
-  }});//mmult
-  
-  /**
-   * array.transpose() - Get the transpose of this array (flip rows and columns).
-   * @return [*] - The transposed array.
-   */
-  if(Array.prototype.transpose) mr.log.warn('Array.prototype.transpose ALREADY EXISTS & IS BEING OVERWRITTEN');
-  Object.defineProperty(Array.prototype,'transpose',{value: function(){
-    const w = this.length || 0;//Calculate the width and height of the Array
-    const h = mr.is.arr(this[0]) ? this[0].length : 0;
-    if(h===0||w===0) return [];//In case it is a zero matrix, no transpose routine needed
-    let t = [];
-    for(let i=0;i<h;++i){
-      t.push([]);
-      for(let j=0;j<w;++j){
-        t[i].push(this[j][i]);//Save transposed data
-      }//for
-    }//for
-    return t;
-  }});//transpose
-  
-  /**
-   * array.resize(length) - Resize this array to the new given length.
-   * @param length : number - New length of the array.
-   * @return [*]
-   */
-  if(Array.prototype.resize) mr.log.warn('Array.prototype.resize ALREADY EXISTS & IS BEING OVERWRITTEN');
-  Object.defineProperty(Array.prototype,'resize',{value: function(length){
-    this.length = length;
-    return this;//for chaining
-  }});//resize
-  
-  /**
-   * array.fill(value) - Fills (modifies) all the elements of an array with the given value.
-   * @param value : * - What to fill the array with, defaults to null.
-   * @return [*]
    *
-  if(Array.prototype.fill) mr.log.warn('Array.prototype.fill ALREADY EXISTS & IS BEING OVERWRITTEN');
-  Object.defineProperty(Array.prototype,'fill',{value: function(value=null){
-    let obj = Object(this);
-    const len = obj.length.uint32;
-    const start = 0;//can be parameterized
-    const relativeStart = start.int32;
-    let k = relativeStart < 0 ? Math.max(len+relativeStart,0) : Math.min(relativeStart,len);
-    const end = undefined;//can be parameterized
-    const relativeEnd = mr.is.undef(end) ? len : end.int32;
-    const final = relativeEnd<0 ? Math.max(len+relativeEnd,0) : Math.min(relativeEnd,len);
-    while(k<final) obj[k++] = value;
-    return obj;
-  }});//defineProperty
-  
-  /**
-   * array.cut(pos,len) - Cut out the specified number of characters from the string.
-   * @param pos : number - Where to start cutting.
-   * @param len : number - How many elements to cut.
-   * @return [*]
    */
-  if(Array.prototype.cut) mr.log.warn('Array.prototype.cut ALREADY EXISTS & IS BEING OVERWRITTEN');
-  Object.defineProperty(Array.prototype,'cut',{value:function(pos,len){
-    return this.substring(0,pos) + this.substring(pos+len);
-  }});//cut
-  
-  ////////////////////////////////
-  // String prototype
-  ////////////////////////////////
-  
-  //function replace(searchIn,searchFor,replacement){return searchIn.replace(new RegExp(searchFor,'g'),replacement)}
-  
-  //if(String.prototype.trim) mr.log.warn('String.prototype.trim ALREADY EXISTS & IS BEING OVERWRITTEN');
-  //Object.defineProperty(String.prototype,   'trim',{get:function(){return this.trim()}});
+  const parseRangeAddress = function(address){
+    const result = {first:{col:{}},last:{col:{}}};
+    result.address = address.replace(/\$/g,'').trim().toUpperCase();
+    result.sheet = result.address.has('!') ? last(result.address.match(/(.*)\!/)) : undefined;
+    result.a1 = result.address.replace(result.sheet+'!','');
+    result.first.a1 = last(result.a1.match(/.*?(?=\:|$)/));
+    result.first.row = last(result.first.a1.match(/([0-9]+)/));
+    result.first.col.letter = last(result.first.a1.match(/([a-z]*)/i)) || 'A';
+    result.first.col.number = column(result.first.col.letter).number;
+    result.last.a1 = last(result.a1.match(/(\:|$)(.*)/)) || result.first.a1;
+    result.last.row = last(result.last.a1.match(/\d*$/));
+    result.last.col.letter = last(result.last.a1.match(/([a-z]*)/i));
+    result.last.col.number = column(result.last.col.letter).number;
+    result.addRight = function(){
+      this.last.col.letter = column(++this.last.col.number).letter;
+      this.last.a1 = this.last.col.letter+this.last.row;
+      this.a1 = this.first.a1+':'+this.last.a1;
+      if(this.sheet) this.address = this.sheet+'!'+this.a1;
+      return this;
+    };//addRight
+    result.addLeft = function(){
+      this.first.col.letter = column(--this.first.col.number).letter;
+      this.first.a1 = this.first.col.letter+this.first.row;
+      this.a1 = this.first.a1+':'+this.last.a1;
+      if(this.sheet) this.address = this.sheet+'!'+this.a1;
+      return this;
+    };//addLeft
+    assert(result.first.col.number<=result.last.col.number);
+    return result;
+  }//parseRangeAddress
 
-  if(String.prototype.isBlank) mr.log.warn('String.prototype.isBlank ALREADY EXISTS & IS BEING OVERWRITTEN');
-  Object.defineProperty(String.prototype,'isBlank',{get:function(){return ''===this.trim()}});
-  
-  if(String.prototype.lower) mr.log.warn('String.prototype.lower ALREADY EXISTS & IS BEING OVERWRITTEN');
-  Object.defineProperty(String.prototype,'lower',{get:function(){return this.toLowerCase()}});
-  
-  if(String.prototype.upper) mr.log.warn('String.prototype.upper ALREADY EXISTS & IS BEING OVERWRITTEN');
-  Object.defineProperty(String.prototype,'upper',{get:function(){return this.toUpperCase()}});
+  /////////////////////////////////////////////////////////////////
+  /////////////////////////////////////////////////////////////////
+  ///
+  /// CLIENT / SERVER
+  ///
+  /////////////////////////////////////////////////////////////////
+  /////////////////////////////////////////////////////////////////
 
-  if(String.prototype.camel) mr.log.warn('String.prototype.camel ALREADY EXISTS & IS BEING OVERWRITTEN');
-  Object.defineProperty(String.prototype,'camel',{get:function(){
-    return this.toLowerCase().replace(/(?:^\w|[A-Z]|\b\w)/g,x=>i ? x.toLowerCase() : x.toUpperCase()).replace(/\s+/g,'');
-  }});//camel
+  const isClient = 'undefined'!=typeof window;//we are executing as the client
+  const client = isClient && {};
+  const server = isClient && {};
+  const drive = !isClient && (fileDesc => drive.get(fileDesc));
 
-  if(String.prototype.count) mr.log.warn('String.prototype.count ALREADY EXISTS & IS BEING OVERWRITTEN');
-  Object.defineProperty(String.prototype,'count',{value:function(search){return (this.match(new RegExp(search,'g'))||[]).length}});
-  
-  if(String.prototype.has) mr.log.warn('String.prototype.has ALREADY EXISTS & IS BEING OVERWRITTEN');
-  Object.defineProperty(String.prototype,'has',{value:function(search){return 0<this.count(search)}});
-  
-//if(String.prototype.clone) mr.log.warn('String.prototype.clone ALREADY EXISTS & IS BEING OVERWRITTEN');
-//String.prototype.clone = function(){return (' '+this).slice(1)}//force all JS VM's to make a copy
-  
-  /**
-   * string.left(pos) - Get the left substring.
-   * @param pos : number - If positive, pos is a position; if negative, pos is a count.
-   * @return string
-   */
-  if(String.prototype.left) mr.log.warn('String.prototype.left ALREADY EXISTS & IS BEING OVERWRITTEN');
-  Object.defineProperty(String.prototype,'left',{value:function(pos){
-    mr.assert(mr.is.num(pos),'Expected number parameter');
-    if(0>pos) pos = this.length + pos;
-    return this.substring(0,pos);
-  }});//left
-  
-  /**
-   * string.right(pos) - Get the right substring.
-   * @param pos : number - If positive, pos is a position; if negative, pos is a count.
-   * @return string
-   */
-  if(String.prototype.right) mr.log.warn('String.prototype.right ALREADY EXISTS & IS BEING OVERWRITTEN');
-  Object.defineProperty(String.prototype,'right',{value:function(pos){
-    mr.assert(mr.is.num(pos),'Expected number parameter');
-    if(0>pos) pos = this.length + pos;
-    return this.substring(pos);
-  }});//right
-  
-  /**
-   * string.mid(pos,len) - Get the middle substring.
-   * @param pos : number - Starting position of substring.
-   * @param len : number - Length of substring.
-   * @return string
-   */
-  if(String.prototype.mid) mr.log.warn('String.prototype.mid ALREADY EXISTS & IS BEING OVERWRITTEN');
-  Object.defineProperty(String.prototype,'mid',{value:function(pos,len){
-    mr.assert(mr.is.num(pos),'string.mid: expected number pos: '+pos);
-    return this.substring(pos,len);
-  }});//mid
-  
-  /**
-   * string.hash - Get a unique hash code for this string.
-   * @return string
-   */
-  if(String.prototype.hash) mr.log.warn('String.prototype.hash ALREADY EXISTS & IS BEING OVERWRITTEN');
-  Object.defineProperty(String.prototype,'hash',{get:function(){
-    let hash = 0;
-    if(this.length == 0) return hash;
-    for(let i=0;i<this.length;++i){
-      const char = this.charCodeAt(i);
-      hash = ((hash<<5)-hash)+char;
-      hash = hash & hash; // Convert to 32bit integer
-    }//for
-    return hash;
-  }});//hashCode
-  
-  /**
-   * string.findClosing(pos) - Find the closing brace that matches the opening brace at the given position.
-   * @param pos : number - Position of the open brace.
-   * @return string
-   */
-  if(String.prototype.findClosing) mr.log.warn('String.prototype.findClosing ALREADY EXISTS & IS BEING OVERWRITTEN');
-  Object.defineProperty(String.prototype,'findClosing',{value:function(pos){
-    if(!mr.is.num(openPos)) return -1;
-    const closures = {'(':')','[':']','{':'}','<':'>'};
-    const openBrace = this[pos];
-    const closeBrace = closures[openBrace];
-    let depth = 1;
-    for(let i=pos+1;i<this.length;++i){
-      if(openBrace===this[i]) ++depth;
-      else if(closeBrace===this[i]){
-        if(0===--depth) return i;
-      }//else if
-    }//for
-    return -1;//no match
-  }});//findClosing
-  
-  /**
-   * string.distance(operand,options) - Get the distance between two strings.
-   * @param operand : string
-   * @param options : {gap,mismatch,match} - The options that can be changed.
-   * @param gap : number - The score gain to do a gap, defaults to -1.
-   * @param mismatch : number - The score gain to do a mismatch, defaults to -2.
-   * @param match : number - The score gain to do a match, defaults to 2.
-   * @return number
-   */
-  if(String.prototype.distance) mr.log.warn('String.prototype.distance ALREADY EXISTS & IS BEING OVERWRITTEN');
-  Object.defineProperty(String.prototype,'distance',{value:function(operand,options={}){
-    return this.smithWaterman(operand,options);
-    //if(opt && 'levenshtein'!=opt.method) throw new Error('string.distance: only levenshtein method currently supported');
-    //var method = (opt && mr.is.str(opt.method) && opt.method) || 'levenshtein';
-    //if(!mr.is.func(this[method])) throw new Error('string.distance: invalid method');
-    //return this[method](operand,opt);
-  }});//distance
-  
-  /**
-   * string.levenshtein(operand) - Get the Levenshtein distance between two strings.
-   * @param operand : string
-   * @return number
-   */
-  if(String.prototype.levenshtein) mr.log.warn('String.prototype.levenshtein ALREADY EXISTS & IS BEING OVERWRITTEN');
-  Object.defineProperty(String.prototype,'levenshtein',{value:function(operand){
-    const a = this;
-    const b = operand;
-    //create empty edit distance matrix for all possible modifications of substrings of a to substrings of b.
-    const distanceMatrix = Array(b.length + 1).fill(null).map(function(x){return Array(a.length + 1).fill(null)});
-    //fill the first row of the matrix. If this is first row then we're transforming empty string to a. In this case the number of transformations equals to size of a substring.
-    for(let i=0;i<=a.length;++i) distanceMatrix[0][i] = i;
-    //fill the first column of the matrix. If this is first column then we're transforming empty string to b. In this case the number of transformations equals to size of b substring.
-    for(let j=0;j<=b.length;++j) distanceMatrix[j][0] = j;
-    for(let j=1;j<=b.length;++j){
-      for(let i=1;i<=a.length;++i){
-        const indicator = a[i-1]===b[j-1] ? 0 : 1;
-        distanceMatrix[j][i] = Math.min(
-          distanceMatrix[ j ][i-1] + 1,          //deletion
-          distanceMatrix[j-1][ i ] + 1,          //insertion
-          distanceMatrix[j-1][i-1] + indicator //substitution
-        );//min
-      }//for
-    }//for
-    return distanceMatrix[b.length][a.length];
-  }});//levenshtein
-  
-  /**
-   * string.smithWaterman(operand,options) - Compute score this two strings
-   * @param operand : string - The string to compare this string with.
-   * @param options : {gap,mismatch,match} - The options that can be changed.
-   * @param gap : number - The score gain to do a gap, defaults to -1.
-   * @param mismatch : number - The score gain to do a mismatch, defaults to -2.
-   * @param match : number - The score gain to do a match, defaults to 2.
-   * @return number
-   */
-  if(String.prototype.smithWaterman) mr.log.warn('String.prototype.smithWaterman ALREADY EXISTS & IS BEING OVERWRITTEN');
-  Object.defineProperty(String.prototype,'smithWaterman',{value:function(operand,options={}){
-    localAligner = function(arrayQ,arrayP,options){
-      const gap      = (options && options.gap     ) || -1;
-      const mismatch = (options && options.mismatch) || -2;
-      const match    = (options && options.match   ) ||  2;
-      this._q = arrayQ;
-      this._p = arrayP;
-      this._gapPen = gap;
-      this._mismatchPen = mismatch;
-      this._matchScore = match;
-      this._matrixA = arrayP.concat([0]).map(function(X){return arrayQ.concat([0]).map(function(y){return 0})});
-      this._matrixB = arrayP.concat([0]).map(function(X){return arrayQ.concat([0]).map(function(y){return 0})});
-      this._finalQ = [];
-      this._finalP = [];
-      this._maxScore = 0;
-      this._maxI = 0;
-      this._maxJ = 0;
-    };//localAligner
-    localAligner.prototype.finalQ     = ()=>this._finalQ;
-    localAligner.prototype.finalP     = ()=>this._finalP;
-    localAligner.prototype.maxScore   = ()=>this._maxScore;
-    localAligner.prototype.matrixA    = ()=>this._matrixA;
-    localAligner.prototype.matrixB    = ()=>this._matrixB;
-    localAligner.prototype.calcTables = ()=>{
-      this._q.splice(0,0,{});
-      this._p.splice(0,0,{});
-      for(let i=1;i<this._p.length;++i){
-        for(let j=1;j<this._q.length;++j){
-          if(this._p[i] !== this._q[j]) this._matrixA[i][j] = this.findMaxScore(i,j);
-          else{
-            this._matrixA[i][j] = this._matrixA[i-1][j-1] + this._matchScore;
-            this._matrixB[i][j] = 3;
-            if(this._matrixA[i][j] > this._maxScore){
-              this._maxScore = this._matrixA[i][j];
-              this._maxI = i;
-              this._maxJ = j;
-            }//if
-          }//else
-        }//for
-      }//for
-    };//calcTables
-    localAligner.prototype.findMaxScore = (i,j)=>{
-      const qDelet = this._matrixA[i-1][j] + this._gapPen;// North score
-      const pDelet = this._matrixA[i][j-1] + this._gapPen;// West score
-      const mismatch = this._matrixA[i-1][j-1] + this._mismatchPen;// Diagonal Score
-      const maxScore = Math.max(qDelet,pDelet,mismatch);
-      if (qDelet === maxScore) this._matrixB[i][j] = 2; // 2 == "up" for traversing solution
-      else if (pDelet === maxScore) this._matrixB[i][j] = 1; // 1 == "left" for traversing solution
-      else if (mismatch === maxScore) this._matrixB[i][j] = 3; // 3 == "diagonal" for traversing solution
-      return maxScore;
-    };//findMaxScore
-    localAligner.prototype.calcAlignemnt = (i,j)=>{
-      if(i===undefined && j===undefined){
-        i = this._maxI;
-        j = this._maxJ;
+  if(isClient){
+    //
+    // DEFINE WHAT A CLIENT IS TO A CLIENT...
+    //
+    assert(document && M);//we depend on the document dom tree and materializecss
+    client.select = domSelectStr => [...document.querySelectorAll(domSelectStr)];
+    document.addEventListener("DOMContentLoaded", client.init = () => {
+      //NOTE: this is scheduled to run when the document is ready!
+      //init MATERIALIZECSS and collapse all collapsibles
+      M.AutoInit();
+      // $('.collapsible.expandable').each(x => M.Collapsible.init(x[0], { accordion: false }));
+      client.select('.collapsible.expandable').forEach(x => M.Collapsible.init(x[0], { accordion: false }));
+      //ensure unique ids
+      const ids = client.select('*').map(x => ({ id: x.id, count: 0 }));
+      client.select('*').forEach(x => {
+        const matches = ids.filter(y => y.id === x.id);
+        matches.uno;//if(matches.length) this.id += (matches.uno.count++).toString().pad(4);
+      });//each
+      const states = [];
+      //TODO: attach events
+      client.select('*').forEach(x => x.getAttribute('data-mr'));
+      server.load(states);
+    });//init
+    client.goto = function (args, dom) {
+      var main = client.select('main').uno;
+      var href = client.select('#' + dom.attr('href').replace(/\#/g, ''));
+      if (!href.length) return log('goto href not found: ' + dom.attr('href'), 'warn');
+      var ul = href.parents('ul');
+      var li = href.parents('li');
+      var liIsActive = 0 <= (li.attr('class') || '').indexOf('active');
+      var tab = href.parents("div[id*='tab']");
+      var tabIsActive = 0 <= (tab.attr('class') || '').indexOf('active');
+      var hrefIsHeader = 0 <= (href.attr('class') || '').indexOf('collapsible-header');
+      //FIX ME: client.select('ul.tabs').tabs('select', tab.attr('id'));//goto tab
+      if (ul.length && !hrefIsHeader) M.Collapsible.getInstance(ul).open(li.index());
+      if (tabIsActive && liIsActive) main.animate({ scrollTop: 0 }, 500);
+      else setTimeout(function () {
+        var scrollAmt = href.offset().top - tab.offset().top + 20;
+        main.animate({ scrollTop: scrollAmt }, 200);
+      }, 400);//setTimeout
+    }//goto
+    client.selectProps = function (dest) {
+      client.select('#' + dest).innerHTML = 'Getting properties...';
+      run({
+        req: 'propAll', success: function (props) {
+          props = Object.keys(props)
+            .sort(function (a, b) { return a < b ? -1 : 1 })
+            .map(function (x) {
+              return {
+                prop: x,
+                type: props[x].type,
+                //color : props[x].type=='doc' ? '#' : (props[x].type=='scr' ? '' : ''),
+                value: props[x].value
+              }//return
+            });//map
+          var newHtml = props.reduce(function (a, x) {
+            var value = x.value
+              .replace(/</g, '&lt;')
+              .replace(/&/g, '&amp;')
+              .replace(/'/g, '&apos;')
+              .replace(/"/g, '&quot;');
+            return a + '<div><code>[' + x.type + ']</code><a href="##" class="link small" onclick=\'run({' +
+              '    req:"editProp_' + x.type + '",' +
+              '    args:"' + x.prop + '",' +
+              '    success:function(v){if(v)client.selectProps("' + dest + '")}' +
+              '})\'> ' + x.prop + ' </a></div>';
+          }, '');//reduce
+          client.select('#' + dest).innerHTML = newHtml;
+        }//success
+      });//run
+    }//getProps
+    client.showEditURL = function (args) {
+      run({
+        req: args, success: function (url) {
+          if (isString(url) && url.length) run({
+            req: 'showURL',
+            args: url.replace('viewform', 'edit')
+          });//run
+        }//success
+      });//run
+    }//showEditURL
+    client.iframeLaunch = function (args) {
+      run({
+        req: args.getUrl, args: args.args, success: function (url) {
+          if (isString(url) && url.length){
+            client.select('#' + args.target)
+            .innerHTML = '<iframe width="1" height="1" src="' + url + '"></iframe>';
+          }
+        }//success
+      });//run
+    }//iframeLaunch
+    client.toggle = function (args) {
+      //$('#'+args.id).css('display',args.value ? 'block' : 'none');//hide/unhide
+      //$('#'+args.id).children().each(function(){$(this).prop('disabled',!args.value)});
+      var descend = function (doms) {
+        doms.forEach(x => {
+          x.children.forEach(y => {
+            descend(y);
+            y.disabled = !args.value;
+          });//each
+        })//each
+      };//descend
+      descend(client.select('#' + args.id));
+    }//toggle
+    client.simulateReg = function (args, dom) {
+      run({
+        req: 'simulateRegs', args: args, success: function (x) {
+          client.select('#txtTestNumRegs').value = 1;
+          M.updateTextFields();//refresh any text fields
+        }//success
+      });//run
+    }//simulateReg
+    client.checkRegForm = function (args, dom) {
+      const status = client.select('#spnStatusRegForm');
+      status.innerHTML = statusErr + 'Out of date';
+      status.className = 'error';
+    }//checkRegForm
+    //
+    // DEFINE WHAT A SERVER IS TO A CLIENT...
+    //
+    server.responses = [];
+    server.request;//TODO
+    server.load = states => {
+      server.request({ 
+        req: 'load', 
+        args: states, 
+        immediate: true,
+        success: results => results.forEach(x => {
+          client.select(x.domId).dataset.mr
+        }),//success
+        failure: 1,
+      });//request
+    }//load
+  }else{
+    //
+    // DEFINE OUR SERVER-ONLY (E.G: GOOGLE DRIVE) FUNCTIONALITY...
+    //
+    assert(DriveApp && Sheets);//we depend on the Drive and Sheets apis
+    let _readRequests = [];
+    let _readResponse = {};
+
+    /**
+     * batchGet(requests,mode)
+     * Use the Sheets API to read the given requests.
+     *
+     * @param {string} spreadsheetId - ID of the spreadsheet file to read.
+     * @param {[string]} requests - Array of strings denoting range addresses to read (comma separated).
+     * @param {string} [mode] - Defaults to 'FORMULA' mode.
+     * 
+     * @return {object} - Response from the Sheets API.
+     * 
+     * @example batchGet("'Sheet1'!A1:B8,'Sheet2'!A1:C3","FORMATTED")
+     */
+    const batchGet = (spreadsheetId, requests, mode = batchGet.formula.mode, dim = 'ROWS') => {
+      assert(is.str(spreadsheetId) && spreadsheetId.length);
+      uno(loop(obj.keys(batchGet), i => batchGet[i.elem].mode === mode ? i : loop.continue));
+      try {
+        //mr.drive.quotas.read.last.time = luxon.DateTime.local();
+        //mr.drive.quotas.read.last.num  = requests.length;
+        return profile(() => retry(() => Sheets.Spreadsheets.Values.batchGet(spreadsheetId, {
+          ranges               : requests,
+          majorDimension       : dim,			        //valid options: ROWS,COLUMNS,DIMENSION_UNSPECIFIED
+          valueRenderOption    : mode,			      //valid options: FORMATTED_VALUE,UNFORMATTED_VALUE,FORMULA
+          dateTimeRenderOption : 'SERIAL_NUMBER', //valid options: FORMATTED_STRING,SERIAL_NUMBER
+        })), 'batchGet');//profile
+      } catch (err) {
+        let msg = err.message;
+        if (msg.has('Response Code: 413')) msg = 'batchGet: Request Entity Too Large';
+        msg += '\nRequests: ' + JSON.stringify(requests);
+        throw new Error(msg + '\n\n' + err.stack);
+      }//catch
+    };//batchGet
+    batchGet.unformatted = {
+      //UNFORMATTED_VALUE : Values will be calculated, but not formatted in the reply. For example, if A1 
+      //is 1.23 and A2 is =A1 and formatted as currency, then A2 would return the number 1.23.
+      //This is the default mode and has the alias "values", e.g: mySheet.values[].
+      mode: 'UNFORMATTED_VALUE',
+      nicknames: ['unformatted', 'values',],
+    };//unformatted
+    batchGet.formatted = {
+      //FORMATTED_VALUE : Values will be calculated & formatted in the reply according to the cell's 
+      //formatting. Formatting is based on the spreadsheet's locale, not the requesting user's locale. For 
+      //example, if A1 is 1.23 and A2 is =A1 formatted as currency, then A2 would return the string "$1.23".
+      mode: 'FORMATTED_VALUE',
+      nicknames: ['formatted', 'texts',],
+    };//formatted
+    batchGet.formula = {
+      //FORMULA : Values will not be calculated. The reply will include the formulas. For example, if A1 
+      //is 1.23 and A2 is =A1 and formatted as currency, then A2 would return "=A1".
+      mode: 'FORMULA',
+      nicknames: ['formula', 'formulas',],
+    };//formula
+    //TBD: batchGet.format = { mode:'FORMAT',nicknames:['format','formats',], }
+
+    drive.get = fileDesc => {
+      if(fileDesc===null) return null;
+      if(fileDesc===undefined) return drive.active;
+      if(is.str.id(fileDesc)) return drive(profile(() => 
+        DriveApp.getFileById(fileDesc),'DriveApp.getFileById'
+      ));//drive
+      if(is.str.url(fileDesc)) return drive(drive.urlToId(fileDesc));
+      if(is.str(fileDesc)) return drive(drive.byPath(fileDesc));
+      const type = is.drive(fileDesc);
+      assert(is.obj(fileDesc) && type && type.mime);
+      if(fileDesc.mr) return fileDesc;//an mr.drive.file was passed in
+      const id = fileDesc.getId();
+      const isDerived = DriveApp!==type.creator;
+      if(isDerived) return drive(DriveApp.getFileById(id));
+      if(!drive.cache) drive.cache = {};
+      if(drive.cache[id]) return drive.cache[id];//cache hit
+      let mrDoc = {mr:{}};
+      let gFile = fileDesc;
+      let gDoc = profile(()=>type.factory.app.openById(id),type.factory.name+'.openById');
+      obj.extend(mrDoc,gFile);//inherit from file
+      obj.extend(mrDoc,gDoc);//inherit from doc/spreadsheet/form/etc
+      obj.cacheables(mrDoc);//add some shortcuts and value cacheing for simple getters
+      if(!mrDoc.getMimeType){
+        //always assume files with no type are folders
+        mrDoc.getMimeType = () => MimeType.FOLDER;
+        mrDoc.mimeType = MimeType.FOLDER;
       }//if
-      if(i===0 || j===0) return;
-      // Optimal solution "DIAGONAL"
-      if(this._matrixB[i][j]===3){
-        this.calcAlignemnt(i-1,j-1);
-        this._finalQ.push(this._q[j]);
-        this._finalP.push(this._p[i]);
-      }else if (this._matrixB[i][j]===2){
-        // Optimal solution "UP"
-        this.calcAlignemnt(i-1,j);
-        this._finalQ.push({});
-        this._finalP.push(this._p[i]);
-      }else{
-        // Optimal solution "LEFT"
-        this.calcAlignemnt(i,j-1);
-        this._finalP.push({});
-        this._finalQ.push(this._p[j]);
-      }//else
-    };//calcAlignment
-    //use the above localAligner object to run smithWaterman below...
-    const arrayQ = this.split('');
-    const arrayP = mr.is.str(operand) ? operand.split('') : operand;
-    mr.assert(mr.is.arr(arrayP),'string.smithWaterman: invalid operand');
-    let sws = new localAligner(arrayQ,arrayP,options);
-    sws.calcTables();
-    sws.calcAlignemnt();
-    return sws.maxScore();
-  }});//smithWaterman
-  
-  /**
-   * string.closest(list,options) - Finds a string that most closely resembles this string.
-   * @param list : [string] - The array of strings to look through.
-   * @param options : {gap,mismatch,match} - The options that can be changed.
-   * @param gap : number - The score gain to do a gap, defaults to -1.
-   * @param mismatch : number - The score gain to do a mismatch, defaults to -2.
-   * @param match : number - The score gain to do a match, defaults to 2.
-   * @return string - The string in the list that most closely resembles the target.
-   */
-  if(String.prototype.closest) mr.log.warn('String.prototype.closest ALREADY EXISTS & IS BEING OVERWRITTEN');
-  Object.defineProperty(String.prototype,'closest',{value:function(list,options={}){
-    if(!mr.is.arr(list)) list = [list];
-    let min = {dist:Infinity,index:-1};
-    list.map(function(x,i){
-      let dist = this.distance(x,options);
-      if(dist<min.dist) min = {dist:dist,index:i};
-      return dist;
-    },this);//map
-    return list[min.index];
-  }});//closest
-  
-  // Function to find Longest common substring of sequences
-  // X[0..m-1] and Y[0..n-1]
-  /**
-   * string.common(operand) - Find the longest common substring of sequences.
-   * @param operand : string
-   * @return string
-   */
-  if(String.prototype.common) mr.log.warn('String.prototype.common ALREADY EXISTS & IS BEING OVERWRITTEN');
-  Object.defineProperty(String.prototype,'common',{value:function(operand){
-    const X = this;
-    const Y = operand;
-    const m = X.length;
-    const n = Y.length;
-    let maxlen = 0;			// stores the max length of LCS
-    let endingIndex = m;		// stores the ending index of LCS in X
-    let lookup = [].fill([].fill(0,n+1),m+1);
-//  let lookup = [];//lookup[m + 1][n + 1]
-//  // initialize all cells of lookup table to 0: memset(lookup,0,sizeof(lookup))
-//  for(let i=0;i<m+1;++i){
-//    lookup.push([]);
-//    for(let j=0;j<n+i;++j) lookup.last.push(0);
-//  }//for
-    // lookup[i][j] stores the length of LCS of substring
-    // X[0..i-1], Y[0..j-1]
-    // fill the lookup table in bottom-up manner
-    for(let i=1;i<=m;++i){
-      for(let j=1;j<=n;++j){
-        // if current character of X and Y matches
-        if(X[i-1] == Y[j-1]){
-          lookup[i][j] = lookup[i-1][j-1] + 1;
-          // update the maximum length and ending index
-          if(lookup[i][j] > maxlen){
-            maxlen = lookup[i][j];
-            endingIndex = i;
-          }//if
-        }//if
-      }//for
-    }//for
-    // return Longest common substring having length maxlen
-    return X.substr(endingIndex-maxlen,maxlen);
-  }});//common
-  
-  ////////////////////////////////
-  // Number prototype
-  ////////////////////////////////
-  
-  /**
-   * number.rescale(domain,range) - Rescale this number value from it's current domain to the new range.
-   * @param domain : {min,max} - Min and max value that this value can currently hold.
-   * @param range : {min,max} - Min and max value that the result should be.
-   * @param min : number - Min allowable value; defaults to 0.
-   * @param max : number - Max allowable value; defaults to 0.
-   * @return number - In the range [range.min,range.max]
-   */
-  if(Number.prototype.rescale) mr.log.warn('Number.prototype.rescale ALREADY EXISTS & IS BEING OVERWRITTEN');
-  Object.defineProperty(Number.prototype,'rescale',{value:function(domain={min:0,max:1},range={min:0,max:1}){
-    mr.assert(domain.min<domain.max,'Number.rescale: please specify a max value greater than the min');
-    mr.assert(range.min<range.max,'Number.rescale: please specify a new max value greater than the new min');
-    mr.assert(domain.min<=this && this<=domain.max,'Number.rescale: attempting to rescale a this value '+this+' outside the min / max: ['+domain.min+','+domain.max+')');
-    return (range.max - range.min)/(domain.max - domain.min)*(this - domain.min) + range.min;
-  }});//rescale
-  
-  /**
-   * number.normalize(domain) - Normalize this number value from it's current domain of [min,max] to the new range [0,1].
-   * @param domain : {min,max} - The starting domain (min & max) for this number.
-   * @param max : number - Max allowable value for this number, must be greater than the min and this number; defaults to 1.
-   * @param min : number - Min allowable value for this number, must be lower than the max and this number; defaults to 0.
-   * @return number - In the range [0,1]
-   */
-  if(Number.prototype.normalize) mr.log.warn('Number.prototype.normalize ALREADY EXISTS & IS BEING OVERWRITTEN');
-  Object.defineProperty(Number.prototype,'normalize',{value:function({min=0,max=1}={}){return this.rescale({min:min,max:max},{min:0,max:1})}});
-  
-  /**
-   * number.gaussian(domain) - Transform this uniformly distributed number to be inside of a Gaussian distribution.
-   *                           Calls the Box-Muller implementation but we could easily point to others here.
-   * @param domain : {min,max} - The starting domain (min & max) for this number.
-   * @param max : number - Max allowable value for this number, must be greater than the min and this number; defaults to 1.
-   * @param min : number - Min allowable value for this number, must be lower than the max and this number; defaults to 0.
-   * @return number - In the range [min,max]
-   */
-  if(Number.prototype.gaussian) mr.log.warn('Number.prototype.gaussian ALREADY EXISTS & IS BEING OVERWRITTEN');
-  Object.defineProperty(Number.prototype,'gaussian',{value:Number.prototype.boxMuller});
+      mrDoc.type = mrDoc.mimeType;
+      //do type specific init
+      switch(mrDoc.type){
+        default:
+          log.warn('mr.drive: Unexpected file type: '+mrDoc.type);
+          break;
+          
+        /////////////////////////////////////////////////////////////////////////////////////////////////////
+        /////////////////////////////////////////////////////////////////////////////////////////////////////
+        case MimeType.FOLDER:
+          obj.cacheable(mrDoc,'files'  ,() => loop(gFile.getFiles  (),f => drive(f.elem)).elems);
+          obj.cacheable(mrDoc,'folders',() => loop(gFile.getFolders(),f => drive(f.elem)).elems);
+          mrDoc.get = desc => {
+            const byType = is.str(desc) && !!Object.keys(MimeType).filter(x => x==desc).length;
+            const method = byType ? 'ByType' : 'ByName';
+            const result = array(mrDoc['files'+method](desc));
+            if(!result.length) result = array(mrDoc['folders'+method](desc));
+            return result.map(x => drive(x));
+          }//get
+          break;
+          
+        /////////////////////////////////////////////////////////////////////////////////////////////////////
+        /////////////////////////////////////////////////////////////////////////////////////////////////////
+        case MimeType.GOOGLE_SHEETS:
+          //add new properties to:
+          //mrDoc
+          //  .sheets -> {}
+          //    [...sheetNames,...sheetIds,...sheetIndices,...sheetNameAbbr]
+          //      <extended sheet>
+          //      .headings -> [heading strings]
+          //      [values,formula,text] -> {reference to mrDoc[values,formula,text][sheetName]}
+          //  [values,formula,text] -> {}
+          //    [...sheetNames,...sheetIds,...sheetIndices,...sheetNameAbbr] -> [[array of array of data]]
+          //      [...columnNumbers,...columnLetters,...columnHeadings,...columnHeadingAbbr] -> [array of data]
+          //        [...rowNumbers] -> data
+          //        .heading        -> string
+          //        .number         -> number
+          //        .letter         -> string
+          //        .headingAbbr    -> string
+          //        .sheet          -> {reference to mrDoc.sheets[sheetName]}
 
-  /**
-   * number.boxMuller(domain) - Use the Box-Muller method to transform this uniformly distributed number to be inside of a Gaussian distribution.
-   * @param domain : {min,max} - The starting domain (min & max) for this number.
-   * @param max : number - Max allowable value for this number, must be greater than the min and this number; defaults to 1.
-   * @param min : number - Min allowable value for this number, must be lower than the max and this number; defaults to 0.
-   * @return number - In the range [min,max]
-   */
-  if(Number.prototype.boxMuller) mr.log.warn('Number.prototype.boxMuller ALREADY EXISTS & IS BEING OVERWRITTEN');
-  Object.defineProperty(Number.prototype,'boxMuller',{value:function({min=0,max=1}={}){
-    let v = 0;
-    mr.assert(0<this && this<1);
-    while(v===0) v = mr.rng();//Converting [0,1) to (0,1)
-    return Math.sqrt(-2.0*Math.log(this))*Math.cos(2.0*Math.PI*v);//Box-Muller transform
-  }});//boxMuller
+          const resetReadCacheables = () => {
+            object.keys(batchGet).forEach(modeType => {
+              const type = batchGet[modeType];
+              obj.cacheable(mrDoc,[type.mode,...type.nicknames],() => {
+                const activeReq = _readRequests
+                .reduce((a,y) => a+(y[type.mode]||''),'').slice(0,-1);//drop trailing comma
+                if(activeReq.length) profile(() => 
+                  mrDoc.read.go(type.mode),//⏳ expensive read happens here
+                  'read.go'
+                );//profile
+                return assert(_readResponse[type.mode],'Must call ss.read([sheets]) first!');
+              });//cacheable formatted/unformatted/formulas
+            });//forEach
+          };//resetReadCacheables
 
-  /**
-   * number.int32 - Get this number as a signed 32-bit integer by using a sign-propagating right-shift.
-   * @return number
-   */
-  if(Number.prototype.int32) mr.log.warn('Number.prototype.int32 ALREADY EXISTS & IS BEING OVERWRITTEN');
-  Object.defineProperty(Number.prototype,'int32',{value:(this >> 0)});
-  
-  /**
-   * number.uint32 - Get this number as an unsigned 32-bit integer by using a zero-fill right-shift.
-   * @return number
-   */
-  if(Number.prototype.uint32) mr.log.warn('Number.prototype.uint32 ALREADY EXISTS & IS BEING OVERWRITTEN');
-  Object.defineProperty(Number.prototype,'uint32',{value:(this >>> 0)});
-  
-  /**
-   * number.array(init) - Create an array of length equal to this number.
-   * @param init : undefined|function|* - Callback function for initializing array values, or a constant value.
-   *
-  Number.prototype.array = function(init){
-    return Array.from({length:this},(mr.is.func(init) && init) || (() => init));
-  }//array
-  */
-  
-  ////////////////////////////////
-  // EXPORT
-  ////////////////////////////////
-  
-  Object.keys(mr).forEach((x)=>{
-    //mr.log.info('Exporting mr["'+x+'"]');
-    if(mr.is.def(scope[x])) mr.log.warn('Overwriting with export of mr["'+x+'"]');
-    scope[x] = mr[x];
-  });//forEach
-}//mrImport
+          resetReadCacheables();//also call this during read()
+
+          const gSheets = profile(() => gDoc.getSheets(),'getSheets');
+
+          const readHeadings = (sheet = null) => {
+            //if(!sheet || !sheet.mr.headings) profile(() => {
+            //const requests = arr(mrDoc.sheets).reduce((a,s) => 
+            //  a+"'"+s.name+"'!"+s.headingRow+':'+s.headingRow+','
+            //,'').slice(0,-1);
+            //const response = batchGet(mrDoc.id,requests,batchGet.formatted.mode);
+            //response.valueRanges.forEach(valueRange => {
+            //  const parsed = parseRangeAddress(valueRange.range);
+            //  const s = assert(mrDoc.sheets[parsed.sheet]);
+            //  assert(!s.mr.headings);
+            //  s.mr.headings = valueRange.values[0];
+            //});//forEach
+            //},'ss.readHeadings');//profile
+            //return sheet && sheet.mr.headings;
+            if(!sheet || !sheet.mr.headings) profile(() => arr(mrDoc.sheets).forEach(s => {
+              assert(!s.mr.headings);
+              //if we called ss.read.go() before now then we may have read headings already
+              s.mr.headings = [ 
+                null,//make array indices match column numbers (start with 1 not 0)
+                ...s.getRange(s.headingRow,1,1,s.lastColumn)
+                .getValues()[0]//TODO: use batchGet to get all sheets!
+              ];//assign s.mr.headings
+            }),'ss.readHeadings');//profile
+            return sheet && sheet.mr.headings;
+          };//readHeadings
+
+          //define sheets belonging to spreadsheets
+          obj.cacheable(mrDoc,'sheets',() => {
+            const sheets = {};
+            gSheets.forEach(s => {
+              obj.cacheables(s);
+              s.mr = {};
+              s.uppername = str.upper(s.name);
+              s.shortname = s.abbr = s.camelname = string.camel(s.name);
+              obj.cacheable(s,['headingRow','headingsRow'],() => s.frozenRows || 1);
+              obj.cacheable(s,['ss','parent'],() => drive(s.getParent()));
+              obj.cacheable(s,'headings',() => readHeadings(s));
+              obj.cacheable(sheets,[
+                s.name,      //proper name allowing spaces, etc
+                s.abbr,      //convenient js-friendly camelCase name
+                s.index-1,   //adjust to be 0-based instead of 1-based
+                s.sheetId,   //problematic bc first sheet gets id 0 for some reason
+                s.uppername, //what batchGet uses
+              ],() => s);
+              assert((sheets.length||0) < s.index);//ss.getSheets() must give us sheets in index order
+              sheets.length = s.index;
+            });//forEach
+            return sheets;
+          });//cacheable sheets
+
+          //for added convenience, define headings
+          obj.cacheable(mrDoc,'headings',() => {
+            const headings = {};
+            arr(mrDoc.sheets)
+            .forEach(s => obj.cacheable(headings, [s.name,s.abbr,s.uppername], () => s.headings));
+            return headings;
+          });//cacheable headings
+
+          /**
+           * spreadsheet.read(sheets)
+           * Queue up the given sheets to be read into memory the next time values (formatted, unformatted, formulas, etc)
+           * are invoked (e.g: ss.values.directors.ids[4]).
+           *
+           * @param {sheet[] | string[]} [sheets] - Defaults to all sheets.
+           * 
+           * @return {spreadsheet} - The spreadsheet, for chaining purposes.
+           *
+           * @example mr.drive().read() //returns the active spreadsheet after all sheets have been queued for reading
+           * @example ss.read('Sheet1') //returns ss after it has queued Sheet1 to be read into memory
+           */
+          //function that reads in data
+          //TODO: support reading only certain columns from a sheet
+          mrDoc.read = (sheets) => {
+            (sheets || arr(mrDoc.sheets)).forEach(s => {
+              const req = {orig:''};
+              if(string.has(req.orig,"'"+s.name+"'!")) return log.warn('No need to ss.read(["'+s.name+'"]) twice!');
+              req.orig += "'"+s.name+"'!"+"A1:ZZZ";//sheet.dataRange.getA1Notation();
+              object.keys(batchGet).forEach(x => req[batchGet[x].mode] = req.orig);
+              _readRequests.push(req);
+            });//forEach
+            resetReadCacheables();
+            return mrDoc;//for chaining
+          };//read
+
+          /**
+           * spreadsheet.read.go(valueType)
+           * Execute the memory read that has been queued up by previous calls to spreadsheet.read(). This is 
+           * implicitly called whenever values (formatted, unformatted, formulas, etc) are invoked 
+           * (e.g: ss.values.directors.ides[4]).
+           *
+           * @param {string} [valueType] - Defaults to all 'unformatted'.
+           * 
+           * @return {[[*]]} - The values read into memory.
+           *
+           * @example mr.drive().read.go('unformatted') //returns the values read into memory
+           */
+          mrDoc.read.go = (mode = batchGet.formula.mode) => {
+            const requests = _readRequests.map(x => x[mode]);
+            assert(requests.length);
+            _readRequests.forEach(x => x[mode] = null);//don't re-read the same req later
+            const response = batchGet(mrDoc.id,requests,mode,'COLUMNS');
+            //console.log(response.valueRanges.map(s => s.range));
+            //batchGet returns object: {
+            //  spreadsheetId: string,
+            //  valueRanges: [...,{                   //array of valueRanges for each sheet
+            //    range          : string,
+            //    majorDimension : enum (Dimension),
+            //    values         : [ [ ] ],           //array of columns containing array of row values
+            //  },...]//valueRanges
+            //}
+            assert(response && response.spreadsheetId==mrDoc.id);
+            response.valueRanges.forEach(s => {
+              const parsed = parseRangeAddress(s.range);
+              const sheet = assert(mrDoc.sheets[parsed.sheet]);
+              if(!_readResponse[mode]) _readResponse[mode] = {};
+              if(_readResponse[mode][parsed.sheet]) log.warn('Reading over "'+sheet.name+'" sheet data!');
+              s.values.unshift(null);//make array indices match sheet column numbers
+              sheet.mr.headings = mode == batchGet.formula.mode ? 
+                sheet.headings : //get the headings as values because they may have formulas in them
+                s.values.map(x => x && x[sheet.headingRow - 1]);//set the headings because we just got them as values
+              sheet.mr.headings.forEach((heading,colNumber) => {
+                if(!heading) return;//ignore null sentinel
+                if(!s.values[colNumber]) return;//blank column
+                const firstRow  = sheet.headingRow+1;
+                const lastRow   = s.values[colNumber].length;
+                for(let i=0;i<sheet.headingRow;++i) s.values[colNumber].shift();//drop heading and non-data rows
+                const colLetter = column(colNumber).letter;
+                const abbr      = str.camel(heading);
+                const a1        = "'"+sheet.name+"'!$"+colLetter+"$"+firstRow +":$"+colLetter+"$"+lastRow  ;
+                const r1c1      = "'"+sheet.name+"'!R"+firstRow +"C"+colNumber+":R"+lastRow  +"C"+colNumber;
+                s.values[colNumber].number  = colNumber;
+                s.values[colNumber].letter  = colLetter;
+                s.values[colNumber].heading = heading;
+                s.values[colNumber].abbr    = abbr;
+                s.values[colNumber].address = { a1:a1, r1c1:r1c1, valueOf:()=>a1 };
+                s.values[heading  ]         = 
+                s.values[abbr     ]         = 
+                s.values[colLetter]         = s.values[colNumber];
+              });//forEach
+              _readResponse[mode][sheet.name   ] = 
+              _readResponse[mode][sheet.abbr   ] = 
+              _readResponse[mode][sheet.sheetId] = 
+              _readResponse[mode][sheet.index  ] = s.values;
+            });//forEach
+            return _readResponse[mode];
+          };//read.go
+          break;
+          
+        ///////////////////////////////////////////////////////////////////////////////////////////////////////
+        ///////////////////////////////////////////////////////////////////////////////////////////////////////
+        case MimeType.GOOGLE_FORMS:
+          //TODO: do not build response table until form.table is invoked
+          break;
+      }//switch
+      return drive.cache[id] = mrDoc;
+    };//drive.get
+
+    //inherit from DriveApp and add some shortcuts and value cacheing for simple getters
+    obj.extend(drive,DriveApp);
+    obj.cacheables(drive);
+
+    drive.auth = true;//assume we are authorized unless told otherwise
+    drive.byPath = (path) => {
+        const onFail = (n,msg) => { if(n) log.warn('Multiple '+msg); else throw new Error('No '+msg) };
+        return drive(path.split(/[\\\/]/).reduce((a,x,i,arr) => {
+          if( '.'==x) return a;
+          if('..'==x) return array.uno(
+            array(a.getParents()),
+            (arr) => onFail(arr.length,'parents found for: '+a.getName())
+          );//uno
+          if(i<arr.length-1) return arr.uno(
+            arr(a.getFoldersByName(x)),
+            (arr) => onFail(arr.length,'folders found with name: '+x)
+          );//uno
+          return arr.uno(
+            arr(a.getFilesByName(x)),
+            (arr) => onFail(arr.length,'files found with name: '+x)
+          );//uno
+        },DriveApp.getRootFolder()));//mr.drive
+      };//byPath
+    drive.utilities = Utilities;
+    drive.fileTypes = ENUM('folder','ss','doc','form','site','slide');
+
+    drive.file = drive.File = {};
+
+    drive.folder = drive.Folder = {};
+    obj.extend(drive.folder,DriveApp.getRootFolder);//inherit from root folder
+    obj.cacheables(drive.folder);//add value cacheing for simple getters
+    drive.folder.isFileType = true;
+
+    drive.ss = drive.spreadsheet = drive.Spreadsheet = {};
+    obj.extend(drive.ss,SpreadsheetApp);//inherit from SpreadsheetApp
+    obj.cacheables(drive.ss);//add value cacheing for simple getters
+    drive.ss.isFileType = true;
+
+    drive.sheet = drive.Sheet = {};
+    obj.cacheables(drive.sheet,'active',()=>drive.ss.activeSheet);
+
+    drive.doc = drive.document = drive.Document = {};
+    obj.extend(drive.doc,DocumentApp);
+    obj.cacheables(drive.doc);//add value cacheing for simple getters
+    drive.doc.active = drive.doc.activeDocument;
+    drive.doc.isFileType = true;
+
+    drive.form = drive.Form = {};
+    obj.extend(drive.form,FormApp);
+    obj.cacheables(drive.form);//add value cacheing for simple getters
+    drive.form.active = drive.form.activeForm;
+    drive.form.isFileType = true;
+
+    drive.slide = drive.presentation = drive.Slide = drive.Presentation = {};
+    obj.extend(drive.slide,SlidesApp);
+    obj.cacheables(drive.slide);//add value cacheing for simple getters
+    drive.slide.active = drive.slide.activePresentation;
+    drive.slide.isFileType = true;
+
+    drive.site = drive.Site = {};
+    obj.extend(drive.site,SitesApp);
+    obj.cacheables(drive.site);//add value cacheing for simple getters
+    drive.site.active = drive.site.activeSite;
+    drive.site.isFileType = true;
+
+    drive.page = drive.Page = {};
+    drive.page.active = drive.site.activePage;
+
+    obj.cacheable(drive,'active' , () => uno(loop(drive.types  , i => drive[+i].active).elems));
+    obj.cacheable(drive,'files'  , () =>     loop(drive.files  , i => drive(i.elem)   ).elems) ;
+    obj.cacheable(drive,'folders', () =>     loop(drive.folders, i => drive(i.elem)   ).elems) ;
+    obj.cacheable(drive,'items'  , () => drive.folders.concat(drive.files));
+    obj.cacheable(drive,'trashed', () => {
+      const folders = loop(drive.trashFolders, i => drive(i.elem)).elems;
+      const files   = loop(drive.trashFiles  , i => drive(i.elem)).elems;
+      const all     = folders.concat(files);
+      all.files     = files;
+      all.folders   = folders;
+      return all;
+    });//trashed
+
+    drive.prop = function(propName,setValue,propType='Document'){
+      assert(Object.keys(drive.prop.types).filter(x=>x==propType).length);
+      //log(version+' | prop('+propName+(setValue?(','+setValue):'')+')');
+      if(!drive.auth) return null;
+      return retry(() => {
+        const propServiceName = 'get'+(string.title(propType))+'Properties';
+        var propService = PropertiesService[propServiceName]();
+        assert(propService);
+        if(is.undefNull(propName)) return propService.getProperties();
+        if(is.undefined(setValue)) return propService.getProperty(propName);
+        if(!setValue) return propService.deleteProperty(propName);
+        return propService.setProperty(propName,setValue);
+      });//retry
+    }//prop
+    obj.cacheable(drive,'props',drive.prop);
+    drive.prop.types = ENUM('DOCUMENT','USER','SCRIPT');
+  }//else
+
+  /////////////////////////////////////////////////////////////////
+  /////////////////////////////////////////////////////////////////
+  ///
+  /// OPTIONAL FUNCTIONALITY
+  ///
+  /////////////////////////////////////////////////////////////////
+  /////////////////////////////////////////////////////////////////
+
+  const extendPrototypes = function () {
+
+    //TODO: give every primitive the is() and is.obj, is.arr, is.num, etc
+    //TODO: use obj.extend(Number.prototype,number) to capture everything instead?
+
+    ///
+    /// NUMBER PROTOTYPE EXTENSIONS
+    ///
+    Object.defineProperties(Number.prototype, {
+      format : { configurable: true, value: function(){return number.toString .apply(this,[this,...arguments])} },
+      clamp  : { configurable: true, value: function(){return number.clamp    .apply(this,[this,...arguments])} },
+      normal : { configurable: true, value: function(){return number.dist.norm.apply(this,[this,...arguments])} },
+    });//defineProperties
+    //assign aliases
+    Number.prototype.norm = Number.prototype.gaussian = Number.prototype.bell = Number.prototype.normal;
+    ///
+    /// STRING PROTOTYPE EXTENSIONS
+    ///
+    Object.defineProperties(String.prototype, {
+      left        : { configurable: true, value: function(){return string.left       .apply(this,[this,...arguments])} },
+      right       : { configurable: true, value: function(){return string.right      .apply(this,[this,...arguments])} },
+      mid         : { configurable: true, value: function(){return string.mid        .apply(this,[this,...arguments])} },
+      insert      : { configurable: true, value: function(){return string.insert     .apply(this,[this,...arguments])} },
+      count       : { configurable: true, value: function(){return string.count      .apply(this,[this,...arguments])} },
+      findClosing : { configurable: true, value: function(){return string.findClosing.apply(this,[this,...arguments])} },
+      has         : { configurable: true, value: function(){return string.has        .apply(this,[this,...arguments])} },
+      lower       : { configurable: true, get  : function(){return string.lower            (this                    )} },
+      upper       : { configurable: true, get  : function(){return string.upper            (this                    )} },
+      camel       : { configurable: true, get  : function(){return string.camel            (this                    )} },
+      snake       : { configurable: true, get  : function(){return string.snake            (this                    )} },
+      kebab       : { configurable: true, get  : function(){return string.kebab            (this                    )} },
+      pascal      : { configurable: true, get  : function(){return string.pascal           (this                    )} },
+      hash        : { configurable: true, get  : function(){return string.hash             (this                    )} },
+      nonblank    : { configurable: true, get  : function(){return string.nonblank         (this                    )} },
+    });//defineProperties
+    ///
+    /// ARRAY PROTOTYPE EXTENSIONS
+    ///
+    Object.defineProperties(Array.prototype, {
+      loop  : { configurable: true, value: function(){return loop.apply       (this,[this,...arguments])} },
+      match : { configurable: true, value: function(){return array.match.apply(this,[this,...arguments])} },
+      uno   : { configurable: true, get  : function(){return uno              (this                    )} },
+    });//defineProperties
+    ///
+    /// OBJECT PROTOTYPE EXTENSIONS
+    ///
+    Object.defineProperties(Object.prototype, {
+      clear     : { configurable: true, value: function(){return clear    .apply(this,[this,...arguments])} },
+      union     : { configurable: true, value: function(){return union    .apply(this,[this,...arguments])} },
+      intersect : { configurable: true, value: function(){return intersect.apply(this,[this,...arguments])} },
+      subtract  : { configurable: true, value: function(){return subtract .apply(this,[this,...arguments])} },
+      loop      : { configurable: true, value: function(){return loop     .apply(this,[this,...arguments])} },
+    });//defineProperties
+    Object.defineProperties(Object.prototype.loop, {
+      //redefine these here to avoid accidental usage of {}.prototype.loop.continue instead of mr.loop.continue
+      continue : { get: () => { throw loopContinue } },
+      break    : { get: () => { throw loopBreak    } },
+    });//defineProperties
+    return scope;//for chaining
+  }//extendPrototypes
+
+  /////////////////////////////////////////////////////////////////
+  /////////////////////////////////////////////////////////////////
+  ///
+  /// CONFIGURATIONS
+  ///
+  /////////////////////////////////////////////////////////////////
+  /////////////////////////////////////////////////////////////////
+
+  const ETypes = ENUM(
+    'UNKNOWN', 'UNDEF', 'NULL', 'ERROR', 'NUM', 'NAN', 'INF', 'BOOL', 'STR', 'ARR', 'FUNC', 'OBJ',
+    'DATE', 'DT', 'DUR', 'INTERVAL', 'SS', 'SHEET', 'DOC', 'FORM', 'SLIDE', 'FOLDER', 'FILE',
+  );//ETypes
+  const EConfigs = ENUM('DEBUG', 'RELEASE');
+  const EEntryTypes = ENUM('ADDON', 'WEBAPP', 'TRIGGER', 'TEST', 'UNKNOWN');
+
+  const config = EConfigs.DEBUG;
+
+  const entry = {
+    time: luxon.DateTime.local(),
+    type: EEntryTypes.UNKNOWN,
+  };//entry
+
+  log.useConsole = true;
+  log.useLogger = false;
+
+  /////////////////////////////////////////////////////////////////
+  /////////////////////////////////////////////////////////////////
+  ///
+  /// FINALIZE MODULE
+  ///
+  /////////////////////////////////////////////////////////////////
+  /////////////////////////////////////////////////////////////////
+
+  // const _mr = function (v) {
+  //   //_state.value = v;
+  //   //_state.type = is(v);
+  //   //return is.func(_state.type) ? _state.type(v) : v;
+  //   assert();
+  // }//_mr
+
+  const setterInvalid = (v) => assert();
+  Object.defineProperties(/*_mr*/ scope, {
+    //
+    //read-only members
+    //
+    name: { get: () => name, set: setterInvalid },
+    license: { get: () => license, set: setterInvalid },
+    version: { get: () => version, set: setterInvalid },
+    lang: { get: () => lang, set: setterInvalid },
+    callstack: { get: () => getCallstack().display, set: setterInvalid },
+    caller: { get: () => getCallstack()[1].func, set: setterInvalid },
+    file: { get: () => getCallstack()[1].file, set: setterInvalid },
+    line: { get: () => getCallstack()[1].line, set: setterInvalid },
+    column: { get: () => getCallstack()[1].column, set: setterInvalid },
+    entry: { get: () => entry, set: setterInvalid },
+    now: { get: date, set: setterInvalid },
+    //
+    //methods
+    //
+    extendPrototypes: { value: extendPrototypes },
+    //partial: { value: partial},
+    retry: { value: retry },
+    poll: { value: poll },
+    profile: { value: profile },
+    loop: { value: loop }, iterate: { value: loop },
+    break: { get: () => loop.break },
+    continue: { get: () => loop.continue }, filter: { get: () => loop.continue },
+    log: { value: log },
+    is: { value: is },
+    swap: { value: swap },
+    clone: { value: clone }, deepCopy: { value: clone },
+    clear: { value: clear }, empty: { value: clear },
+    union: { value: union },
+    intersection: { value: intersect }, intersect: { value: intersect },
+    subtraction: { value: subtract }, subtract: { value: subtract }, diff: { value: subtract },
+    expectation: { value: expect }, expect: { value: expect }, uno: { value: uno },
+    randomIndex: { value: randomIndex },
+    shuffle: { value: shuffle }, randomize: { value: shuffle },
+    sample: { value: sample },
+    cartesian: { value: cartesian },
+    mux: { value: mux }, multiplex: { value: mux },
+    dot: { value: dot },
+    cross: { value: cross },
+    boolean: { value: boolean }, bool: { value: boolean },
+    numbers: { value: numbers },
+    number: { value: number }, num: { value: number },
+    string: { value: string }, str: { value: string },
+    array: { value: array }, arr: { value: array },
+    object: { value: object }, obj: { value: object },
+    enum: { value: ENUM },
+    hourToMs: { value: hourToMs },
+    minToMs: { value: minToMs },
+    secToMs: { value: secToMs },
+    serialNumber: { value: serial }, serial: { value: serial },
+    date: { value: date },
+    duration: { value: duration },
+    client: { value: client },
+    server: { value: server },
+    drive: { value: drive },
+  });//defineProperties
+
+  // //attach mr onto the given (probably global) scope
+  // Object.defineProperty(scope, 'mr', {
+  //   //enumerable: true,
+  //   get: () => {
+  //     //_state.value = _state.type = undefined;
+  //     return _mr;
+  //   }//get
+  //   //value: _mr,
+  // });//defineProperty
+  // return _mr;
+
+  return scope;
+}//mrCreate
 
 
 
-////////////////////////////////
-// TESTING
-////////////////////////////////
-function test(){
-  //var mr = {};
-  mrImport();//imports code into globalThis by default
-  
-  //function iterate
-  
-  //var id = '13Ah_CXXxQeUlR7SwK4vW9bklpZllg2Jzf3o3j47wNRw';
-  
-  rng.seed(1);
-  let r = rng();
-  log('r: '+r);
-  let n = r.normalize();
-  log('n: '+n);
-  let g = r.gaussian();
-  log('g: '+g);
-  
-  //log(rng.int({min:0,max:2,exclude:[0,1]}));//[min..max)
-  //for(let i=0;i<4;++i) log(i+': '+rng.int());
-  //for(let i=0;i<4;++i) log(i+': '+rng.int());
-  //for(let i=0;i<4;++i) log(i+': '+rng.int());
-  
-  //var msg = '\nvalue\t\tisNaN\t\tisFinite\tNumber.isFinite\tmr.is.fin\n';
-  //[0,'0','0A','A0A'].forEach(v=>{
-  //  msg += JSON.stringify(v)+'\t\t'+isNaN(v)+'\t\t'+isFinite(v)+'\t\t'+Number.isFinite(v)+'\t\t'+isNumeric(v)+'\n';
-  //});//forEach
-  //log(msg);
-  
-  //var c = new cow();
-  //c.talk('talk');
-  //c.speak('speak');
-  
-  //mrImport(this);
-  
-  //var a = ['aaa','bbb','ccc','ddd'];
-  //var b = (3).array((x,i)=>i);
-  //log(a.mux(b));
-  
-  //iterate({
-  //  file  : ss,//prop:'propName'
-  //  func  : simulate,
-  //  array : ss.sheets.judges.getSelected(),
-  //  until : drive.warningRuntime<duration(entry).ms
-  //});//iterate
-  
-  //var stack = getCallStack();
-  //log('stack.display:\n'+stack.display);
-  //log('stack:\n'+JSON.stringify(stack));
-  
-  //var ss = new drive.ss(id);
-  //log(ss.sheets.responses.rows.max);
-  //var ss2 = new drive.ss(id);
-  //log(ss.url);
-  
-  //ss.sheets.responses.table.read();
-  //ss.sheets.read(ss.sheets.responses);
-  
-  //ss.readTables(ss.sheets.responses);
-  //log(ss.sheets.responses.table.timestamp.heading);
-  //log(ss.sheets.responses.table.timestamp[0]);
-  //log(ss.sheets.responses.table.timestamp[1]);
-  
-  //test.apply(this);
-}
-}
 
 
-///*///EOF
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+///*<--EOF-->*///
