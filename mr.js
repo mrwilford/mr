@@ -1255,7 +1255,7 @@ function mrInit(callerGlobalThis){
   // }, {});//reduce trigger
 
   //add some convenience methods to DriveApp
-  if(DriveApp){
+  if('undefined'!=typeof DriveApp){
     DriveApp.getItemById = id => {
       const test = retryGoogle(() => DriveApp.getFileById(id));
       const type = retryGoogle(() => test.getMimeType());
