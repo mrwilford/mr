@@ -1158,58 +1158,58 @@ function mrInit(callerGlobalThis){
     },//notify
   };//notifyOnPropChange
 
-  /** Read and write to each of the various PropertyServices.
-   * @param {string} [name] Name of the property to read/write (null: delete all; undefined: get all).
-   * @param {string} [value] Value to write (null: delete specified; undefined: get specified).
-   * @return {string|undefined}
-   * @example
-   * ```
-   * prop.file
-   * const now = new Date();
-   * const serial = new Serial(now);
-   * assert(now.getTime() !== serial.value);
-   * assert(now.getTime() === serial.toDate().getTime());
-   * ```
-   */
-  const prop = Object.keys(Property).reduce((prop, serviceName) => {
-    //use Object.keys().reduce() to avoid accessing the Property getters
-    prop[serviceName] = (name, value) => {
-      const type = Property[serviceName];
-      if(null===name) return notifyOnPropChange.notify() && retryGoogle(() => type.deleteAllProperties());
-      if(undefined===name) return retryGoogle(() => type.getProperties()).map(value => JSON.parse(value));
-      if(undefined===value) return JSON.parse(retryGoogle(() => type.getProperty(name)));
-      if(null===value) return notifyOnPropChange.notify(name) && retryGoogle(() => type.deleteProperty(name));
-      notifyOnPropChange.notify(name, value);
-      return retryGoogle(() => type.setProperty(name, minify(value)));
-    };//prop[serviceName]
-    return prop;
-  }, {});//reduce prop
+  // /** Read and write to each of the various PropertyServices.
+  //  * @param {string} [name] Name of the property to read/write (null: delete all; undefined: get all).
+  //  * @param {string} [value] Value to write (null: delete specified; undefined: get specified).
+  //  * @return {string|undefined}
+  //  * @example
+  //  * ```
+  //  * prop.file
+  //  * const now = new Date();
+  //  * const serial = new Serial(now);
+  //  * assert(now.getTime() !== serial.value);
+  //  * assert(now.getTime() === serial.toDate().getTime());
+  //  * ```
+  //  */
+  // const prop = Object.keys(Property).reduce((prop, serviceName) => {
+  //   //use Object.keys().reduce() to avoid accessing the Property getters
+  //   prop[serviceName] = (name, value) => {
+  //     const type = Property[serviceName];
+  //     if(null===name) return notifyOnPropChange.notify() && retryGoogle(() => type.deleteAllProperties());
+  //     if(undefined===name) return retryGoogle(() => type.getProperties()).map(value => JSON.parse(value));
+  //     if(undefined===value) return JSON.parse(retryGoogle(() => type.getProperty(name)));
+  //     if(null===value) return notifyOnPropChange.notify(name) && retryGoogle(() => type.deleteProperty(name));
+  //     notifyOnPropChange.notify(name, value);
+  //     return retryGoogle(() => type.setProperty(name, minify(value)));
+  //   };//prop[serviceName]
+  //   return prop;
+  // }, {});//reduce prop
 
-  /** Read and write to each of the various CacheServices.
-   * 
-   * @param {string|string[]|object} name Name of the cache to read/write.
-   * If a string, the cached value is read/written.
-   * If an array of strings, the cached values are read/written.
-   * If an object describing multiple values, it is written to the cache.
-   * 
-   * @param {string} [value] Value to write.
-   * If undefined, the specified cache is retrieved.
-   * If null, the specified cache is deleted.
-   * 
-   * @return {string|undefined}
-   */
-  const cache = Object.keys(Cache).reduce((cache, serviceName) => {
-    //use Object.keys().reduce() to avoid accessing the Cache getters
-    cache[serviceName] = (name, value) => {
-      const type = Cache[serviceName];
-      const [ getter, remover ] = is(name, Array) ? [ 'getAll', 'removeAll' ] : [ 'get', 'remove' ];
-      if(is(name, Object)) return retryGoogle(() => type.putAll(name, _maxCacheTime));
-      if(undefined===value) return JSON.parse(retryGoogle(() => type[getter](name)));
-      if(null===value) return retryGoogle(() => type[remover](name));
-      return retryGoogle(() => type.put(name, minify(value), _maxCacheTime));
-    };//cache[serviceName]
-    return cache;
-  }, {});//reduce cache
+  // /** Read and write to each of the various CacheServices.
+  //  * 
+  //  * @param {string|string[]|object} name Name of the cache to read/write.
+  //  * If a string, the cached value is read/written.
+  //  * If an array of strings, the cached values are read/written.
+  //  * If an object describing multiple values, it is written to the cache.
+  //  * 
+  //  * @param {string} [value] Value to write.
+  //  * If undefined, the specified cache is retrieved.
+  //  * If null, the specified cache is deleted.
+  //  * 
+  //  * @return {string|undefined}
+  //  */
+  // const cache = Object.keys(Cache).reduce((cache, serviceName) => {
+  //   //use Object.keys().reduce() to avoid accessing the Cache getters
+  //   cache[serviceName] = (name, value) => {
+  //     const type = Cache[serviceName];
+  //     const [ getter, remover ] = is(name, Array) ? [ 'getAll', 'removeAll' ] : [ 'get', 'remove' ];
+  //     if(is(name, Object)) return retryGoogle(() => type.putAll(name, _maxCacheTime));
+  //     if(undefined===value) return JSON.parse(retryGoogle(() => type[getter](name)));
+  //     if(null===value) return retryGoogle(() => type[remover](name));
+  //     return retryGoogle(() => type.put(name, minify(value), _maxCacheTime));
+  //   };//cache[serviceName]
+  //   return cache;
+  // }, {});//reduce cache
 
   // /** Use each of the various LockServices. */
   // const lock = Object.keys(Lock).reduce((lock, serviceName) => {
@@ -1238,54 +1238,56 @@ function mrInit(callerGlobalThis){
   //   return lock;
   // }, {});//reduce lock
 
-  /** Use each of the various Trigger services. */
-  const trigger = Object.keys(Trigger).reduce((trigger, serviceName) => {
-    //use Object.keys().reduce() to avoid accessing the Trigger getters
-    trigger[serviceName] = (...refs) => {
-      const service = Trigger[serviceName];
-      service.getScriptTriggers().filter(trigger => refs.every(ref => {
-        if(is(ref, ScriptApp.TriggerSource)) return ref==retryGoogle(() => trigger.getTriggerSource());
-        if(is(ref, ScriptApp.EventType    )) return ref==retryGoogle(() => trigger.getEventType());
-        if(is(ref.toString(), $TriggerId)) return ref==retryGoogle(() => trigger.getUniqueId());
-        if(is(ref.toString(), $Id)) return ref==retryGoogle(() => trigger.getTriggerSourceId());
-        return assert(is(ref, String)) && ref==retryGoogle(() => trigger.getHandlerFunction());
-      })).forEach(trigger => trigger.delete = () => retryGoogle(() => ScriptApp.deleteTrigger(trigger)));
-    };//trigger[serviceName]
-    return trigger;
-  }, {});//reduce trigger
+  // /** Use each of the various Trigger services. */
+  // const trigger = Object.keys(Trigger).reduce((trigger, serviceName) => {
+  //   //use Object.keys().reduce() to avoid accessing the Trigger getters
+  //   trigger[serviceName] = (...refs) => {
+  //     const service = Trigger[serviceName];
+  //     service.getScriptTriggers().filter(trigger => refs.every(ref => {
+  //       if(is(ref, ScriptApp.TriggerSource)) return ref==retryGoogle(() => trigger.getTriggerSource());
+  //       if(is(ref, ScriptApp.EventType    )) return ref==retryGoogle(() => trigger.getEventType());
+  //       if(is(ref.toString(), $TriggerId)) return ref==retryGoogle(() => trigger.getUniqueId());
+  //       if(is(ref.toString(), $Id)) return ref==retryGoogle(() => trigger.getTriggerSourceId());
+  //       return assert(is(ref, String)) && ref==retryGoogle(() => trigger.getHandlerFunction());
+  //     })).forEach(trigger => trigger.delete = () => retryGoogle(() => ScriptApp.deleteTrigger(trigger)));
+  //   };//trigger[serviceName]
+  //   return trigger;
+  // }, {});//reduce trigger
 
   //add some convenience methods to DriveApp
-  DriveApp.getItemById = id => {
-    const test = retryGoogle(() => DriveApp.getFileById(id));
-    const type = retryGoogle(() => test.getMimeType());
-    switch(type){
-      default: return test;
-      case MimeType.FOLDER       : return retryGoogle(() => DriveApp      .getFolderById(id));
-      case MimeType.GOOGLE_DOCS  : return retryGoogle(() => DocumentApp   .openById     (id));
-      case MimeType.GOOGLE_FORMS : return retryGoogle(() => FormApp       .openById     (id));
-      case MimeType.GOOGLE_SHEETS: return retryGoogle(() => SpreadsheetApp.openById     (id));
-      case MimeType.GOOGLE_SLIDES: return retryGoogle(() => SlidesApp     .openById     (id));
-    }//switch type
-  };//DriveApp.getItemById
+  if(DriveApp){
+    DriveApp.getItemById = id => {
+      const test = retryGoogle(() => DriveApp.getFileById(id));
+      const type = retryGoogle(() => test.getMimeType());
+      switch(type){
+        default: return test;
+        case MimeType.FOLDER       : return retryGoogle(() => DriveApp      .getFolderById(id));
+        case MimeType.GOOGLE_DOCS  : return retryGoogle(() => DocumentApp   .openById     (id));
+        case MimeType.GOOGLE_FORMS : return retryGoogle(() => FormApp       .openById     (id));
+        case MimeType.GOOGLE_SHEETS: return retryGoogle(() => SpreadsheetApp.openById     (id));
+        case MimeType.GOOGLE_SLIDES: return retryGoogle(() => SlidesApp     .openById     (id));
+      }//switch type
+    };//DriveApp.getItemById
 
-  DriveApp.getItemByUrl = url => DriveApp.getItemById(url.match($Id).pop());
+    DriveApp.getItemByUrl = url => DriveApp.getItemById(url.match($Id).pop());
 
-  DriveApp.getIdFromPath = path => path.match($Path).reduce(
-    (item, name, i, arr) => retryGoogle(
-      () => item[`get${i==arr.length-1 ? 'Files' : 'Folders'}ByName`](name)
-    ).asArray().uno, 
-    retryGoogle(() => DriveApp.getRootFolder())
-  );//reduce item
+    DriveApp.getIdFromPath = path => path.match($Path).reduce(
+      (item, name, i, arr) => retryGoogle(
+        () => item[`get${i==arr.length-1 ? 'Files' : 'Folders'}ByName`](name)
+      ).asArray().uno, 
+      retryGoogle(() => DriveApp.getRootFolder())
+    );//reduce item
 
-  DriveApp.getItemByPath = path => DriveApp.getItemById(DriveApp.getIdFromPath(path));
+    DriveApp.getItemByPath = path => DriveApp.getItemById(DriveApp.getIdFromPath(path));
 
-  //get Drive item by id, url, or path
-  DriveApp.getItem = desc => is(desc, $Path) 
-    ? DriveApp.getItemByPath(desc) 
-    : DriveApp.getItemById(desc.match($Id).pop());//handle urls too
+    //get Drive item by id, url, or path
+    DriveApp.getItem = desc => is(desc, $Path) 
+      ? DriveApp.getItemByPath(desc) 
+      : DriveApp.getItemById(desc.match($Id).pop());//handle urls too
 
-  /** Internal cached storage for spreadsheet data. Keyed by ssId then dataType. */
-  const _DriveCache = {};
+    // /** Internal cached storage for spreadsheet data. Keyed by ssId then dataType. */
+    // const _DriveCache = {};
+  }//if DriveApp
 
   const ss = spreadsheet => {
     if(!spreadsheet) spreadsheet = profile(
@@ -1364,53 +1366,53 @@ function mrInit(callerGlobalThis){
     return Column;
   }, {});//Column
 
-  /** @typedef {string} SheetDataType */
-  const SheetDataType = ENUM([
-    'background',
-    'backgrounds',
-    'backgroundObject',
-    'backgroundObjects',
-    'dataValidation',
-    'dataValidations',
-    'fontColorObject',
-    'fontColorObjects',
-    'fontFamily',
-    'fontFamilies',
-    'fontLine',
-    'fontLines',
-    'fontSize',
-    'fontSizes',
-    'fontStyle',
-    'fontStyles',
-    'fontWeight',
-    'fontWeights',
-    'formula',
-    'formulas',
-    'formulaR1C1',
-    'formulasR1C1',
-    'horizontalAlignment',
-    'horizontalAlignments',
-    'note',
-    'notes',
-    'numberFormat',
-    'numberFormats',
-    'richTextValue',
-    'richTextValues',
-    'textDirection',
-    'textDirections',
-    'textRotation',
-    'textRotations',
-    'textStyle',
-    'textStyles',
-    'value',
-    'values',
-    'verticalAlignment',
-    'verticalAlignments',
-    'wrapStrategies',
-    'wrapStrategy',
-    'wrap',
-    'wraps',
-  ]);//SheetDataType
+  // /** @typedef {string} SheetDataType */
+  // const SheetDataType = ENUM([
+  //   'background',
+  //   'backgrounds',
+  //   'backgroundObject',
+  //   'backgroundObjects',
+  //   'dataValidation',
+  //   'dataValidations',
+  //   'fontColorObject',
+  //   'fontColorObjects',
+  //   'fontFamily',
+  //   'fontFamilies',
+  //   'fontLine',
+  //   'fontLines',
+  //   'fontSize',
+  //   'fontSizes',
+  //   'fontStyle',
+  //   'fontStyles',
+  //   'fontWeight',
+  //   'fontWeights',
+  //   'formula',
+  //   'formulas',
+  //   'formulaR1C1',
+  //   'formulasR1C1',
+  //   'horizontalAlignment',
+  //   'horizontalAlignments',
+  //   'note',
+  //   'notes',
+  //   'numberFormat',
+  //   'numberFormats',
+  //   'richTextValue',
+  //   'richTextValues',
+  //   'textDirection',
+  //   'textDirections',
+  //   'textRotation',
+  //   'textRotations',
+  //   'textStyle',
+  //   'textStyles',
+  //   'value',
+  //   'values',
+  //   'verticalAlignment',
+  //   'verticalAlignments',
+  //   'wrapStrategies',
+  //   'wrapStrategy',
+  //   'wrap',
+  //   'wraps',
+  // ]);//SheetDataType
 
   /** Convert Spreadsheet sheets into tables.
    * ```
