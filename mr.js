@@ -11,26 +11,23 @@ function mrInit(callerGlobalThis){
   //////////////////////////////////////////////////////////////////
   //#region CONSTANTS
 
-  const _backend = getScriptUrl(`AKfycbyn2rf6Uk2aIL-ViBd81431n8XhwKe8M6pHZA70clG-ej3r97bkTdBV6Ehhzu-e1L6R`);
-  const asciiA   = 'A'.charCodeAt(0);//65
-  const nbsp     = '\xa0';
-  const nbtab    = nbsp.repeat(4);
-  const msPerSec = 1000         ; const msToSec = ms  => ms /msPerSec ; const secToMs = sec => sec*msPerSec ;
-  const msPerMin = 1000*60      ; const msToMin = ms  => ms /msPerMin ; const minToMs = min => min*msPerMin ;
-  const msPerHr  = 1000*60*60   ; const msToHr  = ms  => ms /msPerHr  ; const hrToMs  = hr  => hr *msPerHr  ;
-  const msPerDay = 1000*60*60*24; const msToDay = ms  => ms /msPerDay ; const dayToMs = day => day*msPerDay ;
-  const secPerMin=      60      ; const secToMin= sec => sec/secPerMin; const minToSec= min => min*secPerMin;
-  const secPerHr =      60*60   ; const secToHr = sec => sec/secPerHr ; const hrToSec = hr  => hr *secPerHr ;
-  const secPerDay=      60*60*24; const secToDay= sec => sec/secPerDay; const dayToSec= day => day*secPerDay;
-  const minPerHr =         60   ; const minToHr = min => min/minPerHr ; const hrToMin = hr  => hr *minPerHr ;
-  const minPerDay=         60*24; const minToDay= min => min/minPerDay; const dayToMin= day => day*minPerDay;
-  const hrPerDay =            24; const hrToDay = hr  => hr /hrPerDay ; const dayToHr = day => day*hrPerDay ;
-  const TIMESUP  = Symbol( 'TIMESUP'  );
-  const PRIVATE  = Symbol( 'PRIVATE'  );//do not export!
-  const PUBLIC   = Symbol( 'PUBLIC'   );
-  const _CONTINUE= { name: 'CONTINUE' };
-  const _BREAK   = { name: 'BREAK'    };
-  const _EMPTY   = { name: 'EMPTY'    };
+  const _backend  = getScriptUrl(`AKfycbyn2rf6Uk2aIL-ViBd81431n8XhwKe8M6pHZA70clG-ej3r97bkTdBV6Ehhzu-e1L6R`);
+  const isClient  = !!globalThis.window, isServer = !globalThis.window;
+  const asciiA    = 'A'.charCodeAt(0);//65
+  const nbsp      = '\xa0', nbtab = nbsp.repeat(4);
+  const msPerSec  = 1000         , msToSec  = ms  => ms /msPerSec , secToMs  = sec => sec*msPerSec ;
+  const msPerMin  = 1000*60      , msToMin  = ms  => ms /msPerMin , minToMs  = min => min*msPerMin ;
+  const msPerHr   = 1000*60*60   , msToHr   = ms  => ms /msPerHr  , hrToMs   = hr  => hr *msPerHr  ;
+  const msPerDay  = 1000*60*60*24, msToDay  = ms  => ms /msPerDay , dayToMs  = day => day*msPerDay ;
+  const secPerMin =      60      , secToMin = sec => sec/secPerMin, minToSec = min => min*secPerMin;
+  const secPerHr  =      60*60   , secToHr  = sec => sec/secPerHr , hrToSec  = hr  => hr *secPerHr ;
+  const secPerDay =      60*60*24, secToDay = sec => sec/secPerDay, dayToSec = day => day*secPerDay;
+  const minPerHr  =         60   , minToHr  = min => min/minPerHr , hrToMin  = hr  => hr *minPerHr ;
+  const minPerDay =         60*24, minToDay = min => min/minPerDay, dayToMin = day => day*minPerDay;
+  const hrPerDay  =            24, hrToDay  = hr  => hr /hrPerDay , dayToHr  = day => day*hrPerDay ;
+  const TIMESUP   = Symbol('TIMESUP');
+  const PUBLIC    = Symbol('PUBLIC'), PRIVATE = Symbol('PRIVATE');//do not export PRIVATE!
+  const _CONTINUE = {}, _BREAK = {}, _EMPTY = {};
   Object.defineProperties(callerGlobalThis, {
     CONTINUE: { get: () => { throw _CONTINUE } },
     BREAK   : { get: () => { throw _BREAK    } },
@@ -1041,7 +1038,7 @@ function mrInit(callerGlobalThis){
   const {
     DateTime, /*Duration,*/ Interval, //luxon stuff (valid on both server and client)
     HtmlService, Property, Cache, Lock, Trigger, UI, //GAS stuff (will be undefined on client)
-  } = (() => globalThis.window ? luxon : luxonInit({
+  } = (() => isClient ? luxon : luxonInit({
     HtmlService: callerGlobalThis.HtmlService,
     Property: Object.defineProperties({}, {
       file  : { get: () => retryGoogle(() => PropertiesService.getDocumentProperties()), enumerable: true },
@@ -1255,7 +1252,9 @@ function mrInit(callerGlobalThis){
   // }, {});//reduce trigger
 
   //add some convenience methods to DriveApp
-  if('undefined'!=typeof DriveApp){
+  if(globalThis.DriveApp){
+    assert(isServer);
+
     DriveApp.getItemById = id => {
       const test = retryGoogle(() => DriveApp.getFileById(id));
       const type = retryGoogle(() => test.getMimeType());
@@ -1624,8 +1623,8 @@ function mrInit(callerGlobalThis){
 
   //frontend responds ASAP with default 
 
-  const user = Session && retryGoogle(() => Session.getActiveUser().getEmail());//undefined on client
-  const url = ScriptApp && retryGoogle(() => ScriptApp.getService().getUrl());//undefined on client
+  const user = globalThis.Session && retryGoogle(() => Session.getActiveUser().getEmail());
+  const url = globalThis.ScriptApp && retryGoogle(() => ScriptApp.getService().getUrl());
   const id  = encode(now % encode.max4);
   const _defaultTitle = 'App';
   const _defaultFavicon = 'https://cdn-icons-png.flaticon.com/512/148/148905.png';
@@ -1877,161 +1876,170 @@ function mrInit(callerGlobalThis){
   /** Placeholder for widget tree state machine functions. */
   const _karos = {};
 
-  /** DOM helpers. */
-  const dom = {
-    /** Find doms with the given selectors. */
-    select: selectors => [ ...document.querySelectorAll(selectors) ],
-    /** Get all the html comments. */
-    comments: (root = document.body) => 
-      document.createNodeIterator(root, NodeFilter.SHOW_COMMENT, () => NodeFilter.FILTER_ACCEPT, false).asArray(),
-    /** */
-    data: (dom, data) => JSON.parse(dom.getAttribute('data-'+data)),
-    /** */
-    call: (selectors, event) => dom.select(selectors).forEach(dom => {
-      const funcName = dom.getAttribute('data-'+event.name);
-      const func = funcName && _karos[funcName];
-      if(is(func, Function)) return func(event);
-    }),//call
-    /** */
-    events: [
-      "oncopy",              "oncut",                     "onpaste",                  "onabort",
-      "onblur",              "onfocus",                   "onauxclick",               "onbeforeinput",
-      "oncanplay",           "oncanplaythrough",          "onchange",                 "onclick",
-      "onclose",             "oncontextmenu",             "oncuechange",              "ondblclick",
-      "ondrag",              "ondragend",                 "ondragenter",              "ondragexit",
-      "ondragleave",         "ondragover",                "ondragstart",              "ondrop",
-      "ondurationchange",    "onemptied",                 "onended",                  "onformdata",
-      "oninput",             "oninvalid",                 "onkeydown",                "onkeypress",
-      "onkeyup",             "onload",                    "onloadeddata",             "onloadedmetadata",
-      "onloadend",           "onloadstart",               "onmousedown",              "onmouseenter",
-      "onmouseleave",        "onmousemove",               "onmouseout",               "onmouseover",
-      "onmouseup",           "onwheel",                   "onpause",                  "onplay",
-      "onplaying",           "onprogress",                "onratechange",             "onreset",
-      "onresize",            "onscroll",                  "onsecuritypolicyviolation","onseeked",
-      "onseeking",           "onselect",                  "onslotchange",             "onstalled",
-      "onsubmit",            "onsuspend",                 "ontimeupdate",             "onvolumechange",
-      "onwaiting",           "onselectstart",             "onselectionchange",        "ontoggle",
-      "onpointercancel",     "onpointerdown",             "onpointerup",              "onpointermove",
-      "onpointerout",        "onpointerover",             "onpointerenter",           "onpointerleave",
-      "ongotpointercapture", "onlostpointercapture",      "onmozfullscreenchange",    "onmozfullscreenerror",
-      "onanimationcancel",   "onanimationend",            "onanimationiteration",     "onanimationstart",
-      "ontransitioncancel",  "ontransitionend",           "ontransitionrun",          "ontransitionstart",
-      "onwebkitanimationend","onwebkitanimationiteration","onwebkitanimationstart",   "onwebkittransitionend",
-      "onerror",             "onfullscreenchange",        "onfullscreenerror",
-    ],//events
-  };//dom
+  const dom = (selectors, on=document) => [ ...on.querySelectorAll(selectors) ];
+  
+  // /** DOM helpers. */
+  // const dom = {
+  //   /** Find doms with the given selectors. */
+  //   select: selectors => [ ...document.querySelectorAll(selectors) ],
+  //   /** Get all the html comments. */
+  //   comments: (root=document.body) => 
+  //     document.createNodeIterator(
+  //       root, 
+  //       NodeFilter.SHOW_COMMENT, 
+  //       () => NodeFilter.FILTER_ACCEPT, 
+  //       false
+  //     ).asArray(),
+  //   /** */
+  //   data: (dom, data) => JSON.parse(dom.getAttribute('data-'+data)),
+  //   /** */
+  //   call: (selectors, event) => dom.select(selectors).forEach(dom => {
+  //     const funcName = dom.getAttribute('data-'+event.name);
+  //     const func = funcName && _karos[funcName];
+  //     if(is(func, Function)) return func(event);
+  //   }),//call
+  //   /** */
+  //   events: [
+  //     "oncopy",              "oncut",                     "onpaste",                  "onabort",
+  //     "onblur",              "onfocus",                   "onauxclick",               "onbeforeinput",
+  //     "oncanplay",           "oncanplaythrough",          "onchange",                 "onclick",
+  //     "onclose",             "oncontextmenu",             "oncuechange",              "ondblclick",
+  //     "ondrag",              "ondragend",                 "ondragenter",              "ondragexit",
+  //     "ondragleave",         "ondragover",                "ondragstart",              "ondrop",
+  //     "ondurationchange",    "onemptied",                 "onended",                  "onformdata",
+  //     "oninput",             "oninvalid",                 "onkeydown",                "onkeypress",
+  //     "onkeyup",             "onload",                    "onloadeddata",             "onloadedmetadata",
+  //     "onloadend",           "onloadstart",               "onmousedown",              "onmouseenter",
+  //     "onmouseleave",        "onmousemove",               "onmouseout",               "onmouseover",
+  //     "onmouseup",           "onwheel",                   "onpause",                  "onplay",
+  //     "onplaying",           "onprogress",                "onratechange",             "onreset",
+  //     "onresize",            "onscroll",                  "onsecuritypolicyviolation","onseeked",
+  //     "onseeking",           "onselect",                  "onslotchange",             "onstalled",
+  //     "onsubmit",            "onsuspend",                 "ontimeupdate",             "onvolumechange",
+  //     "onwaiting",           "onselectstart",             "onselectionchange",        "ontoggle",
+  //     "onpointercancel",     "onpointerdown",             "onpointerup",              "onpointermove",
+  //     "onpointerout",        "onpointerover",             "onpointerenter",           "onpointerleave",
+  //     "ongotpointercapture", "onlostpointercapture",      "onmozfullscreenchange",    "onmozfullscreenerror",
+  //     "onanimationcancel",   "onanimationend",            "onanimationiteration",     "onanimationstart",
+  //     "ontransitioncancel",  "ontransitionend",           "ontransitionrun",          "ontransitionstart",
+  //     "onwebkitanimationend","onwebkitanimationiteration","onwebkitanimationstart",   "onwebkittransitionend",
+  //     "onerror",             "onfullscreenchange",        "onfullscreenerror",
+  //   ],//events
+  // };//dom
 
-  /** Define all the karos css classes that will have special functionality. */
-  const karosDomClasses = ENUM({
-    karos: '.karos',
-    jobsList: '.karosJobsList',
-  });//karosDomClasses
+  // /** Define all the karos css classes that will have special functionality. */
+  // const karosDomClasses = ENUM({
+  //   karos: '.karos',
+  //   jobsList: '.karosJobsList',
+  // });//karosDomClasses
 
-  /** Client-side list of pending jobs. */
-  const _pendingJobs = [];
-  const pendingJobs = {
+  // /** Client-side list of pending jobs. */
+  // const _pendingJobs = [];
+  // const pendingJobs = {
 
-    /** Get all the jobs with the given ids, or all the jobs.
-     * @param {number[]} [ids]
-     * @return {object[]}
-     */
-    get: ids => ids ? ids.map(id => assert(_pendingJobs.filter(job => id==job.created).uno)) : _pendingJobs,
+  //   /** Get all the jobs with the given ids, or all the jobs.
+  //    * @param {number[]} [ids]
+  //    * @return {object[]}
+  //    */
+  //   get: ids => ids ? ids.map(id => assert(_pendingJobs.filter(job => id==job.created).uno)) : _pendingJobs,
 
-    /** Add a job.
-     * @param {object} job
-     */
-    add: job => {
-      _pendingJobs.push(job);
-      assert(_pendingJobs.length==[ ...new Set(_pendingJobs.map(job => job.created)) ].length);
-      dom.select(karosDomClasses.jobsList).forEach(jobList => {
-        const addJobMethodName = assert(dom.data(jobList, new Error('addJob')));
-        const addJobMethod = assert(window[addJobMethodName]);
-        addJobMethod(job);
-      });//forEach jobList
-    },//add
+  //   /** Add a job.
+  //    * @param {object} job
+  //    */
+  //   add: job => {
+  //     _pendingJobs.push(job);
+  //     assert(_pendingJobs.length==[ ...new Set(_pendingJobs.map(job => job.created)) ].length);
+  //     dom.select(karosDomClasses.jobsList).forEach(jobList => {
+  //       const addJobMethodName = assert(dom.data(jobList, new Error('addJob')));
+  //       const addJobMethod = assert(window[addJobMethodName]);
+  //       addJobMethod(job);
+  //     });//forEach jobList
+  //   },//add
 
-    /** Mark a job as done.
-     * @param {object} job
-     */
-    done: job => {
-      assert(_pendingJobs.length==[ ...new Set(_pendingJobs.map(job => job.created)) ].length);
-      const i = _pendingJobs.findIndex(finishedJob => finishedJob.created==job.created);
-      assert(_pendingJobs.splice(i, 1)==job.created);
-      dom.select(karosDomClasses.jobsList).forEach(jobList => {
-        const jobDoneMethodName = assert(dom.data(jobList, new Error('jobDone')));
-        const jobDoneMethod = assert(window[jobDoneMethodName]);
-        jobDoneMethod(job);
-      });//forEach jobList
-    },//done
-  };//karosJobList
+  //   /** Mark a job as done.
+  //    * @param {object} job
+  //    */
+  //   done: job => {
+  //     assert(_pendingJobs.length==[ ...new Set(_pendingJobs.map(job => job.created)) ].length);
+  //     const i = _pendingJobs.findIndex(finishedJob => finishedJob.created==job.created);
+  //     assert(_pendingJobs.splice(i, 1)==job.created);
+  //     dom.select(karosDomClasses.jobsList).forEach(jobList => {
+  //       const jobDoneMethodName = assert(dom.data(jobList, new Error('jobDone')));
+  //       const jobDoneMethod = assert(window[jobDoneMethodName]);
+  //       jobDoneMethod(job);
+  //     });//forEach jobList
+  //   },//done
+  // };//karosJobList
 
-  /** Create a new job that does nothing but gives the server an opportunity to send data.
-   * If there are no jobs then we can afford to wait longer for state changes.
-   */
-  const _createJobKarosGetState = () => setTimeout(() => createJobs([ {} ]), _pendingJobs.length ? 250 : 4137);
+  // /** Create a new job that does nothing but gives the server an opportunity to send data.
+  //  * If there are no jobs then we can afford to wait longer for state changes.
+  //  */
+  // const _karosGetStateJob = () => setTimeout(() => createJobs([{}]), _pendingJobs.length ? 250 : 4137);
 
-  /** Create some jobs on the server. */
-  const createJobs = jobs => {
-    //update each job with a unique 'created' property (number)
-    jobs.forEach(job => {
-      let created = DateTime.now().valueOf();//number of milliseconds
-      while(_pendingJobs.some(job => job.created==created)) ++created;//guarantee 'created' is unique
-      job.created = created;
-      pendingJobs.add(job);
-    });//forEach job
-    const _onFailure = err => {
-      log.error(`❌ createKarosJobs failed: ${stringify(err)})`);
-      const failedJobIds = JSON.parse(err.message.match(/«jobs:(.+)»/).pop());//job ids hidden here
-      const failedJobs = _pendingJobs.filter(job => failedJobIds.includes(job.created));
-      failedJobs.forEach(failedJob => {
-        if(is(failedJob.onFailure, Function)) return failedJob(failedJob, err);
-        log.warn('Missing job.onFailure which is needed to re-add the job.');
-      });//forEach failedJob
-    };//_karosOnFailure
-    const _onSuccess = completedJobs => {
-      //translate the given jobs to ones found in our pending list so that job.onSuccess exists
-      completedJobs = completedJobs.map(completedJob => 
-        assert(_pendingJobs.filter(job => job.created==completedJob.created).uno)
-      );//map completedJob
-      completedJobs.forEach(job => {
-        if(_getKarosState.name==job.worker);//🔥 if response is a state change.......
-        pendingJobs.jobDone(job);
-        if(is(job.onSuccess, Function)) return job.onSuccess(job);
-        log.warn('Missing job.onSuccess');
-      });//forEach response
-      _createJobKarosGetState();
-    };//_onSuccess
-    google.script.run//.withUserObject(job)
-    .withFailureHandler(_onFailure)
-    .withSuccessHandler(_onSuccess)
-    .request(jobs);
-  };//createJobs
+  // /** Create some jobs on the server. */
+  // const createJobs = jobs => {
+  //   //update each job with a unique 'created' property (number)
+  //   jobs.forEach(job => {
+  //     let created = DateTime.now().valueOf();//number of milliseconds
+  //     while(_pendingJobs.some(job => job.created==created)) ++created;//guarantee 'created' is unique
+  //     job.created = created;
+  //     pendingJobs.add(job);
+  //   });//forEach job
+  //   const _onFailure = err => {
+  //     log.error(`❌ createKarosJobs failed: ${stringify(err)})`);
+  //     const failedJobIds = JSON.parse(err.message.match(/«jobs:(.+)»/).pop());//job ids hidden here
+  //     const failedJobs = _pendingJobs.filter(job => failedJobIds.includes(job.created));
+  //     failedJobs.forEach(failedJob => {
+  //       if(is(failedJob.onFailure, Function)) return failedJob(failedJob, err);
+  //       log.warn('Missing job.onFailure which is needed to re-add the job.');
+  //     });//forEach failedJob
+  //   };//_karosOnFailure
+  //   const _onSuccess = completedJobs => {
+  //     //translate the given jobs to ones found in our pending list so that job.onSuccess exists
+  //     completedJobs = completedJobs.map(completedJob => 
+  //       assert(_pendingJobs.filter(job => job.created==completedJob.created).uno)
+  //     );//map completedJob
+  //     completedJobs.forEach(job => {
+  //       if(_getKarosState.name==job.worker);//🔥 if response is a state change.......
+  //       pendingJobs.jobDone(job);
+  //       if(is(job.onSuccess, Function)) return job.onSuccess(job);
+  //       log.warn('Missing job.onSuccess');
+  //     });//forEach response
+  //     _karosGetStateJob();
+  //   };//_onSuccess
+  //   google.script.run//.withUserObject(job)
+  //   .withFailureHandler(_onFailure)
+  //   .withSuccessHandler(_onSuccess)
+  //   .request(jobs);
+  // };//createJobs
 
-  /** Initialize Karos after the DOM is fully loaded. */
-  const _karosInit = e => {
-    // console.log('DOMContentLoaded');
-    if(M) M.AutoInit();//materialize
-    dom.select('.collapsible.expandable').forEach(dom => M.Collapsible.init(dom, { accordion: false }));
-    //set up the _pendingJobs array with what we find in the job lists doms
-    //TODO: what if the user doesnt have a dom list? can server send back jobs another way?
-    dom.select(karosDomClasses.jobsList).forEach(jobList => {
-      const getJobsMethodName = assert(dom.data(jobList, new Error('getJobs')));
-      const getJobsMethod = assert(window[getJobsMethodName]);
-      getJobsMethod().forEach(job => _pendingJobs.push(job));
-    });//forEach jobList
-    _createJobKarosGetState();//kick things off with a getState job request
-    //set up the 'onClick' event on all '.karos' doms
-    dom.select('.karos').forEach(dom => {
-      const onClickName = dom.data(dom, 'onClick');
-      const onClick = onClickName && _karos[onClickName];
-      if(is(onClick, Function)) dom.onclick = onClick;
-    });//forEach dom
-    //it's time to fire the 'onLoadDone' event across all '.karos' doms
-    dom.call(karosDomClasses.karos, { name: 'onLoadDone' });
-  };//_onLoaded
+  /** Initialize after the DOM is fully loaded. */
+  const _initClient = e => {
+    assert(isClient);
+    console.log('DOMContentLoaded');
+    M.AutoInit();//initialize materialize
+    // dom('.collapsible.expandable.closed').forEach(el => M.Collapsible.init(el, { accordion: false }));
+
+    // //set up the _pendingJobs array with what we find in the job lists doms
+    // //TODO: what if the user doesnt have a dom list? can server send back jobs another way?
+    // dom.select(karosDomClasses.jobsList).forEach(jobList => {
+    //   const getJobsMethodName = assert(dom.data(jobList, new Error('getJobs')));
+    //   const getJobsMethod = assert(window[getJobsMethodName]);
+    //   getJobsMethod().forEach(job => _pendingJobs.push(job));
+    // });//forEach jobList
+    // _karosGetStateJob();//kick things off with a getState job request
+    // //set up the 'onClick' event on all '.karos' doms
+    // dom.select('.karos').forEach(el => true
+    //   && el.dataset.onClick
+    //   && 'function'==typeof _karos[el.dataset.onClick]
+    //   && (el.onclick = _karos[el.dataset.onClick])
+    // );//forEach dom
+    // //it's time to fire the 'onLoadDone' event across all '.karos' doms
+    // dom.call(karosDomClasses.karos, { name: 'onLoadDone' });
+  };//_initClient
 
   //when the page is done loading, set up karos
-  if(globalThis.window) globalThis.window.addEventListener('DOMContentLoaded', _karosInit);
+  if(globalThis.window) globalThis.window.addEventListener('DOMContentLoaded', _initClient);
 
   //#endregion KAROS CLIENT
   //////////////////////////////////////////////////////////////////
@@ -2144,7 +2152,7 @@ function mrInit(callerGlobalThis){
     switchPage,
     WidgetTree,
     Widget,
-    karosDomClasses,
+    // karosDomClasses,
   });//return Object.assign exports
   //#endregion EXPORT
 };//mrInit
