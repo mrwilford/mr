@@ -1104,14 +1104,15 @@ function mrInit(callerGlobalThis){
 
   /** */
   const EntryType = {
-    webappBackend  : { GASQuotaRuntime: minToMs(30), name: '☁'      },
-    webappFrontend : { GASQuotaRuntime: minToMs(30), name: '💧'      },
-    macro          : { GASQuotaRuntime: minToMs( 6), name: 'MACRO'   },
-    trigger        : { GASQuotaRuntime: minToMs( 6), name: 'TRIGGER' },
+    client        : {                               name: '🌈' },
+    webappBackend : { GASQuotaRuntime: minToMs(30), name: '⛅' },
+    webappFrontend: { GASQuotaRuntime: minToMs(30), name: '💧'  },
+    macro         : { GASQuotaRuntime: minToMs( 6), name: '🌞' },
+    trigger       : { GASQuotaRuntime: minToMs( 6), name: '⚡' },
   };//EntryTypes
 
   /** Where you can describe app entry and other state. */
-  const setEntryType = entryType => _entryType = entryType;
+  const setEntryType = type => (assert(EntryType.client!==type || isClient), _entryType = type);
   const now = DateTime.now();
   let _entryType;
 
@@ -1673,6 +1674,11 @@ function mrInit(callerGlobalThis){
   /** Initialize after the DOM is fully loaded. */
   const _initClient = e => {
     assert(isClient);
+    log.configure({
+      pre: `${id}${setEntryType(EntryType.client).name}`,  
+      post: `\n» ${user}`,
+    });//log.configure
+
     log('DOMContentLoaded');
     M.AutoInit();//initialize materialize
     // dom('.collapsible.expandable.closed').forEach(el => M.Collapsible.init(el, { accordion: false }));
