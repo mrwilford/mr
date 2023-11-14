@@ -1,33 +1,39 @@
 //mr.js © 2023 Michael Wilford. All Rights Reserved.
-//Google Script ID: 1BmXlxR7buaCUBNOabPWHcs77DKzt4SnSJOCSFpeYXqjyqLXgN0HSER7N
 //https://cdn.jsdelivr.net/gh/mrwilford/mr/mr.js (or mr.min.js)
+'use strict';
 
-function mrInit(callerGlobalThis){
-  'use strict';
+//determine where this code is executing
+const _isClient  = !!globalThis.window, _isServer = !_isClient;
 
-  if(!callerGlobalThis) callerGlobalThis = globalThis;
+//auto-initialize on client
+if(_isClient) globalThis.window.addEventListener('DOMContentLoaded', _ => mrInit())
 
+/** Initialize the mr library.
+ * @param {*} [callerGlobalThis] Defaults to ``globalThis`` where all functionality is attached.
+ * @returns {*} The given ``callerGlobalThis`` with the new functionality attached.
+ */
+function mrInit(callerGlobalThis=globalThis){
   //////////////////////////////////////////////////////////////////
   //////////////////////////////////////////////////////////////////
   //#region CONSTANTS
 
-  const _backend  = getScriptUrl(`AKfycbyn2rf6Uk2aIL-ViBd81431n8XhwKe8M6pHZA70clG-ej3r97bkTdBV6Ehhzu-e1L6R`);
-  const isClient  = !!globalThis.window, isServer = !globalThis.window;
-  const asciiA    = 'A'.charCodeAt(0);//65
-  const nbsp      = '\xa0', nbtab = nbsp.repeat(4);
-  const msPerSec  = 1000         , msToSec  = ms  => ms /msPerSec , secToMs  = sec => sec*msPerSec ;
-  const msPerMin  = 1000*60      , msToMin  = ms  => ms /msPerMin , minToMs  = min => min*msPerMin ;
-  const msPerHr   = 1000*60*60   , msToHr   = ms  => ms /msPerHr  , hrToMs   = hr  => hr *msPerHr  ;
-  const msPerDay  = 1000*60*60*24, msToDay  = ms  => ms /msPerDay , dayToMs  = day => day*msPerDay ;
-  const secPerMin =      60      , secToMin = sec => sec/secPerMin, minToSec = min => min*secPerMin;
-  const secPerHr  =      60*60   , secToHr  = sec => sec/secPerHr , hrToSec  = hr  => hr *secPerHr ;
-  const secPerDay =      60*60*24, secToDay = sec => sec/secPerDay, dayToSec = day => day*secPerDay;
-  const minPerHr  =         60   , minToHr  = min => min/minPerHr , hrToMin  = hr  => hr *minPerHr ;
-  const minPerDay =         60*24, minToDay = min => min/minPerDay, dayToMin = day => day*minPerDay;
-  const hrPerDay  =            24, hrToDay  = hr  => hr /hrPerDay , dayToHr  = day => day*hrPerDay ;
-  const TIMESUP   = Symbol('TIMESUP');
-  const PUBLIC    = Symbol('PUBLIC'), PRIVATE = Symbol('PRIVATE');//do not export PRIVATE!
-  const _CONTINUE = {}, _BREAK = {}, _EMPTY = {};
+  const _backend   = getScriptUrl(`AKfycbyn2rf6Uk2aIL-ViBd81431n8XhwKe8M6pHZA70clG-ej3r97bkTdBV6Ehhzu-e1L6R`);
+  const _isBackend = _isServer && callerGlobalThis===globalThis, _isFrontend = _isServer && !_isBackend;
+  const asciiA     = 'A'.charCodeAt(0);//65
+  const nbsp       = '\xa0', nbtab = nbsp.repeat(4);
+  const msPerSec   = 1000         , msToSec  = ms  => ms /msPerSec , secToMs  = sec => sec*msPerSec ;
+  const msPerMin   = 1000*60      , msToMin  = ms  => ms /msPerMin , minToMs  = min => min*msPerMin ;
+  const msPerHr    = 1000*60*60   , msToHr   = ms  => ms /msPerHr  , hrToMs   = hr  => hr *msPerHr  ;
+  const msPerDay   = 1000*60*60*24, msToDay  = ms  => ms /msPerDay , dayToMs  = day => day*msPerDay ;
+  const secPerMin  =      60      , secToMin = sec => sec/secPerMin, minToSec = min => min*secPerMin;
+  const secPerHr   =      60*60   , secToHr  = sec => sec/secPerHr , hrToSec  = hr  => hr *secPerHr ;
+  const secPerDay  =      60*60*24, secToDay = sec => sec/secPerDay, dayToSec = day => day*secPerDay;
+  const minPerHr   =         60   , minToHr  = min => min/minPerHr , hrToMin  = hr  => hr *minPerHr ;
+  const minPerDay  =         60*24, minToDay = min => min/minPerDay, dayToMin = day => day*minPerDay;
+  const hrPerDay   =            24, hrToDay  = hr  => hr /hrPerDay , dayToHr  = day => day*hrPerDay ;
+  const TIMESUP    = Symbol('TIMESUP');
+  const PUBLIC     = Symbol('PUBLIC'), PRIVATE = Symbol('PRIVATE');//do not export PRIVATE!
+  const _CONTINUE  = {}, _BREAK = {}, _EMPTY = {};
   Object.defineProperties(callerGlobalThis, {
     CONTINUE: { get: () => { throw _CONTINUE } },
     BREAK   : { get: () => { throw _BREAK    } },
@@ -306,14 +312,6 @@ function mrInit(callerGlobalThis){
   const evalIndirect = eval;//use indirect eval in strict mode for safety
 
   /** Use JSON.stringify() but avoid circular references and default to formatting with ``NBtab``. */
-  // const stringify = (value, space=nbtab) => {
-  //   const q = [];
-  //   return JSON.stringify(value, (_, val) => (
-  //     is(val, Function) 
-  //       ? val.toString() 
-  //       : (q.includes(val) ? `↺{${val && Object.keys(val)}}` : (q.push(val), val))
-  //   ), space);//JSON.stringify
-  // };//stringify
   const stringify = (value, space=nbtab) => {
     const q = [];
     return JSON.stringify(value, (_, val) => {
@@ -627,7 +625,7 @@ function mrInit(callerGlobalThis){
   const itoa = ascii => String.fromCharCode(ascii);
 
   /** Convert a column number to its letter address. */
-  const columnNumberToLetter = n => 
+  const colNumToLet = n => 
     (assert(0<n) && n<=26 ? '' : itoa(asciiA+(n-1-26)/26)) + itoa(asciiA+(n-1)%26);
 
   /** Convert a table (2D array) of data into an array of objects where the 
@@ -1038,7 +1036,7 @@ function mrInit(callerGlobalThis){
   const {
     DateTime, /*Duration,*/ Interval, //luxon stuff (valid on both server and client)
     HtmlService, Property, Cache, Lock, Trigger, UI, //GAS stuff (will be undefined on client)
-  } = (() => isClient ? luxon : luxonInit({
+  } = (() => _isClient ? luxon : luxonInit({
     HtmlService: callerGlobalThis.HtmlService,
     Property: Object.defineProperties({}, {
       file  : { get: () => retryGoogle(() => PropertiesService.getDocumentProperties()), enumerable: true },
@@ -1071,7 +1069,7 @@ function mrInit(callerGlobalThis){
               assert(retryGoogle(() => service.hasLock()));
               log(`Lock.${name} obtained in ${Duration({beginTryLock}).as('ms')}ms`);
               const beginHasLock = new Date();
-              const result = retry(() => func());
+              const result = retry(() => func());//result may be an error
               retryGoogle(() => service.releaseLock());
               log(`Lock.${name} was retained for ${Duration({beginHasLock}).as('ms')}ms`);
               //now that we've released the lock we can throw the error if there was one
@@ -1112,7 +1110,7 @@ function mrInit(callerGlobalThis){
   };//EntryTypes
 
   /** Where you can describe app entry and other state. */
-  const setEntryType = type => (assert(EntryType.client!==type || isClient), _entryType = type);
+  const setEntryType = type => (assert(EntryType.client!==type || _isClient), _entryType = type);
   const now = DateTime.now();
   let _entryType;
 
@@ -1254,7 +1252,7 @@ function mrInit(callerGlobalThis){
 
   //add some convenience methods to DriveApp
   if(globalThis.DriveApp){
-    assert(isServer);
+    assert(_isServer);
 
     DriveApp.getItemById = id => {
       const test = retryGoogle(() => DriveApp.getFileById(id));
@@ -1289,13 +1287,26 @@ function mrInit(callerGlobalThis){
     // const _DriveCache = {};
   }//if DriveApp
 
+  /** Upgrade the given Google ``Spreadsheet`` with added functionality.
+   * @param {Spreadsheet} [spreadsheet] The spreadsheet to upgrade. If undefined,
+   *        the active spreadsheet is upgraded, and for convenience, this ``ss`` 
+   *        function is given all the members of the upgraded spreadsheet too.
+   * @return {Spreadsheet} With the added functionality.
+   * @example
+   * ```
+   * ss().read({ 'Users': ['values','notes'] });//bulk read all values and notes from 'Users' sheet
+   * ss['Users'].col['Name'].values[5] = 'edited';
+   * ss['Users'].col['Name'].values.write();
+   * ```
+   */
   const ss = spreadsheet => {
+    const _ss = spreadsheet ? ss : {};
     if(!spreadsheet) spreadsheet = profile(
       () => retryGoogle(() => SpreadsheetApp.getActiveSpreadsheet()),
       { desc: `SpreadsheetApp.getActiveSpreadsheet()` }
     );//profile
-    Object.assign(ss, spreadsheet);
-    ss.read = desc => Object.keys(desc).forEach(sheetName => {
+    Object.assign(_ss, spreadsheet);
+    _ss.read = desc => Object.keys(desc).forEach(sheetName => {
       //support indexing on sheets to access data by types; eg: ss['Users'].values
       const sheet = profile(
         () => retryGoogle(() => spreadsheet.getSheetByName(sheetName)), 
@@ -1307,7 +1318,7 @@ function mrInit(callerGlobalThis){
       );//profile
       const dataRangeAddress = retryGoogle(() => dataRange.getA1Notation());
       const s = Object.assign(dataRange, sheet);//s is a sheet with methods from data Range
-      Object.assign(ss, { [sheetName]: s });
+      Object.assign(_ss, { [sheetName]: s });
       desc[sheetName].forEach(dataType => {
         const dataName = dataType.slice(0,1).toUpperCase()+dataType.slice(1);
         assert('function'==typeof dataRange['get'+dataName], `"${'get'+dataName}" is not a Range method.`);
@@ -1329,7 +1340,7 @@ function mrInit(callerGlobalThis){
       s.col = s.headings.reduce((col, heading, index) => {
         if(col[heading]) log.warn(`ss: Overwriting column heading: "${heading}"`);
         const number = 1+index;
-        const letter = columnNumberToLetter(number);
+        const letter = colNumToLet(number);
         const colRange = retryGoogle(() => s.getRange(letter+':'+letter));
         return Object.assign(col, {
           [heading]: Object.assign(
@@ -1355,12 +1366,12 @@ function mrInit(callerGlobalThis){
         combined.map((row, r) => [ ...row, ...(r ? s[dataType][r] : row.map(x => `${x}#${dataType}`)) ])
       ));//reduce
     });//ss.read
-    return ss;
+    return _ss;
   };//ss
 
   /** @typedef {Symbol} Column */
   const Column = Array(26*27).fill(0).reduce((Column, _, i) => {
-    const [ number, letter ] = [ 1+i, columnNumberToLetter(1+i) ];
+    const [ number, letter ] = [ 1+i, colNumToLet(1+i) ];
     Column[number] = Symbol(number);
     Column[letter] = Symbol(letter);
     return Column;
@@ -1463,7 +1474,7 @@ function mrInit(callerGlobalThis){
         table.unshiftEmpty();//use empty to make column indices match actual column numbers
         table.forEach((column, c) => {
           column.number = c;
-          column.letter = columnNumberToLetter(column.number);
+          column.letter = colNumToLet(column.number);
           column.heading = headings[c-1].toString();
           column.name = column.heading.toCamelCase();
           column.headingRow = headingRow;
@@ -1673,12 +1684,11 @@ function mrInit(callerGlobalThis){
 
   /** Initialize after the DOM is fully loaded. */
   const _initClient = e => {
-    assert(isClient);
+    assert(_isClient);
     log.configure({
-      pre: `${id}${setEntryType(EntryType.client).name}`,  
+      pre: `${id}${setEntryType(EntryType.client).name}`, 
       post: `\n» ${user}`,
     });//log.configure
-
     log('DOMContentLoaded');
     M.AutoInit();//initialize materialize
     // dom('.collapsible.expandable.closed').forEach(el => M.Collapsible.init(el, { accordion: false }));
@@ -1802,13 +1812,13 @@ function mrInit(callerGlobalThis){
 
   //frontend responds ASAP with default 
 
-  const user = isServer 
+  const user = _isServer 
     ? retryGoogle(() => Session.getActiveUser().getEmail()) 
     : uno(dom('meta[data-user]')).dataset.user;
-  const url = isServer 
+  const url = _isServer 
     ? retryGoogle(() => ScriptApp.getService().getUrl())
     : uno(dom('meta[data-url]')).dataset.url;
-  const id = isServer
+  const id = _isServer
     ? encode(now % encode.max4)
     : uno(dom('meta[data-id]')).dataset.id;
   const _defaultTitle = 'App';
@@ -2057,125 +2067,53 @@ function mrInit(callerGlobalThis){
   //////////////////////////////////////////////////////////////////
   //////////////////////////////////////////////////////////////////
   //#region EXPORT
-  return Object.assign(callerGlobalThis, {
-    Settings,
-    EntryType,
-    setEntryType,
-    now,
-    License,
-    Version,
-    asciiA,
-    nbsp,
-    nbtab,
-    Serial,
-    DateTime,
-    Duration,
-    Interval,
-    msPerSec,
-    msPerMin,
-    msPerHr,
-    msPerDay,
-    secPerMin,
-    secPerHr,
-    secPerDay,
-    minPerHr,
-    minPerDay,
-    hrPerDay,
-    msToSec,
-    msToMin,
-    msToHr,
-    msToDay,
-    secToMin,
-    secToHr,
-    secToDay,
-    minToHr,
-    minToDay,
-    hrToDay,
-    secToMs,
-    minToMs,
-    hrToMs,
-    dayToMs,
-    minToSec,
-    hrToSec,
-    dayToSec,
-    hrToMin,
-    dayToMin,
-    dayToHr,
-    getCallstack,
-    PUBLIC,
-    Column,
-    Primitive,
-    SmallInt,
-    Finite,
-    Entries,
-    Indexed,
-    Key,
-    $TriggerId,
-    $Id,
-    $Url,
-    $Path,
-    $Email,
-    $Range,
-    toCamelCase,
-    uno,
-    nonempty,
-    transpose,
-    // combine,
-    Trigger,
-    Property,
-    Cache,
-    Lock,
-    //CS,
-    UI,
-    ss,
-    // include,
-    getScriptUrl,
-    // prop,
-    // cache,
-    // trigger,
-    states,
-    getTables,
-    doGet,
-    // doPost,
-    equivalent,
-    evalIndirect,
-    stringify,
-    minify,
-    escapeRegex,
-    is,
-    type,
-    error,
-    assert,
-    partial,
-    retry,
-    retryGoogle,
-    profile,
-    log,
-    encode,
-    itoa,
-    atoi,
-    columnNumberToLetter,
-    tableToObjects,
-    id,
-    url,
-    user,
-    backendRequest,
-    include,
-    switchPage,
-    WidgetTree,
-    Widget,
-    // karosDomClasses,
+  const _clientEx = !_isClient ? {} : {
+    //🌈client only exports go here
+  };//_clientExports
+  const _frontendEx = !_isFrontend ? {} : {
+    //💧frontend only exports go here
+    doGet           , backendRequest  , include         , switchPage      ,
+    WidgetTree      , Widget          ,
+  };//_serverFrontendExports
+  const _backendEx = !_isBackend ? {} : {
+    //⛅backend only exports go here
+    doPost          ,
+  };//_serverBackendExports
+  const _serverEx = !_isServer ? {} : {
+    //⛅💧both frontend and backend exports go here
+    doGet           , backendRequest  , include         , switchPage      ,
+    Trigger         , Property        , Cache           , Lock            ,
+    UI              , ss              , getScriptUrl    , retryGoogle     ,
+    // CS           , prop            , cache           , trigger         ,
+    // states       , getTables       ,
+  };//_serverExports
+  return Object.assign(callerGlobalThis, _clientEx, _frontendEx, _backendEx, _serverEx, {
+    //exports for everything go here
+    doGet           , backendRequest  , include         , switchPage      ,
+    asciiA          , nbsp            , nbtab           , getCallstack    ,
+    msPerSec        , msPerMin        , msPerHr         , msPerDay        ,
+    secPerMin       , secPerHr        , secPerDay       , minPerHr        ,
+    minPerDay       , hrPerDay        , msToSec         , msToMin         ,
+    msToHr          , msToDay         , secToMin        , secToHr         ,
+    secToDay        , minToHr         , minToDay        , hrToDay         ,
+    secToMs         , minToMs         , hrToMs          , dayToMs         ,
+    minToSec        , hrToSec         , dayToSec        , hrToMin         ,
+    dayToMin        , dayToHr         , License         , Version         ,
+    PUBLIC          , DateTime        , Duration        , Interval        ,
+    Serial          , Column          , Primitive       , Finite          ,
+    SmallInt        , Entries         , Indexed         , Key             ,
+    Settings        , EntryType       , setEntryType    , now             ,
+    $TriggerId      , $Id             , $Url            , $Path           ,
+    $Email          , $Range          , escapeRegex     , tableToObjects  ,
+    uno             , toCamelCase     , nonempty        , transpose       ,
+    equivalent      , evalIndirect    , stringify       , minify          ,
+    is              , type            , error           , assert          ,
+    log             , partial         , retry           , profile         ,
+    encode          , itoa            , atoi            , colNumToLet     ,
+    id              , url             , user            ,
   });//return Object.assign exports
   //#endregion EXPORT
 };//mrInit
-
-
-
-
-
-
-
-
 
 
 
