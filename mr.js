@@ -31,14 +31,8 @@ function mrInit(callerGlobalThis=globalThis){
   const minPerHr   =         60   , minToHr  = min => min/minPerHr , hrToMin  = hr  => hr *minPerHr ;
   const minPerDay  =         60*24, minToDay = min => min/minPerDay, dayToMin = day => day*minPerDay;
   const hrPerDay   =            24, hrToDay  = hr  => hr /hrPerDay , dayToHr  = day => day*hrPerDay ;
-  const TIMESUP    = Symbol('TIMESUP');
   const PUBLIC     = Symbol('PUBLIC'), PRIVATE = Symbol('PRIVATE');//do not export PRIVATE!
-  const _CONTINUE  = {}, _BREAK = {}, _EMPTY = {};
-  Object.defineProperties(callerGlobalThis, {
-    CONTINUE: { get: () => { throw _CONTINUE } },
-    BREAK   : { get: () => { throw _BREAK    } },
-    EMPTY   : { get: () => { throw _EMPTY    } },
-  });//defineProperties exports
+  const TIMESUP    = Symbol('TIMESUP');
 
   //#endregion CONSTANTS
   //////////////////////////////////////////////////////////////////
@@ -530,17 +524,21 @@ function mrInit(callerGlobalThis=globalThis){
   /** */
   const retryGoogle = (onTry, options) => {
     const result = retry(onTry, { ...options, escalation: 1, attempts: 4 });
-    return is(result, Error) ? error(result) : result;
+    assert(!is(result, Error), result);
+    return result;
   };//retryGoogle
 
   /** Time a function to see how long it takes in the logs.
    * @param {function} func Function to profile.
-   * @param {string} [desc] Description to include in log. Defaults to the function name, file, 
-   * and line number retrieved from getCallstack(): `${mr.func} (${mr.file}:${mr.line})`.
-   * @param {*} [thisArg] Context to run the given function with. Uses func.call(thisArg,...).
-   * @return {*} Result of the given function.
+   * @param {object} [options]
+   * @param {string} [options.desc] Description to include in log. Defaults to the function name, file,
+   *        and line number retrieved from getCallstack(): `${mr.func} (${mr.file}:${mr.line})`.
+   * @param {boolean} [options.shouldLog] Defaults true to use console log to output the duration.
+   * @param {*} [thisArg] Context to run the given function with. Uses func.call(thisArg).
+   * @return {*} Result of the given function. A ``Duration`` is also provided via an ``out_duration``
+   *        property injected into the provided ``options`` argument.
    */
-  const profile = (func, { desc, shouldLog=true, thisArg } = {}) => {
+  const profile = function(func, { desc, shouldLog=true, out_duration, thisArg } = {}){
     if(!desc){
       const stack = getCallstack()[1];
       desc = stack.func + ' (' + stack.file + ':' + stack.line + ')';
@@ -550,12 +548,44 @@ function mrInit(callerGlobalThis=globalThis){
     const start = DateTime.now();
     const result = func.call(thisArg);
     _profileStack.pop();
-    const duration = Duration({ start });
+    const duration = (arguments[1]||{}).out_duration = Duration({ start });
     if(shouldLog) log('⏱ PROFILE: ' + duration.as('ms') + 'ms to complete' + stackDesc);
-    return result;//{ result, duration };
+    return result;
   }//profile
   const _profileStack = [];
 
+  /** Callback for loop that maps each element in a collection (array or object).
+   * @typedef {function} MapLooper
+   * @param {*} val
+   * @param {number|string|Symbol} key
+   * @param {*[]} arr
+   * @return {*}
+   */
+  /** Callback for loop that reduces elements in a collection (array or object).
+   * @typedef {function} ReduceLooper
+   * @param {*} accum
+   * @param {*} val
+   * @param {number|string|Symbol} key
+   * @param {*[]} arr
+   * @return {*}
+   */
+  /** IMMUTABLE. Loop can filter, map, reduce, and forEach through all the elements of a 
+   * collection (array or object) and supports the use of three new keywords:
+   * - ``loop.CONTINUE`` will filter the element from the mapped result.
+   * - ``loop.BREAK`` will end the loop early.
+   * - ``loop.EMPTY`` will map the element as ``empty`` for arrays.
+   * @param {ReduceLooper|MapLooper} looper Function that gets called on each element whose return 
+   *        value contributes to the result.
+   * @param {*} [initial] If undefined, ``looper`` will be called  as a mapper, otherwise it will 
+   *        be called as a reducer that takes an extra ``accum`` parameter in the first position.
+   * @return {*}
+   * @example
+   * ```
+   * loop([ 1,2,3,4 ], x => x%2 ? x : loop.CONTINUE); // ⇾ [ 1,3 ]
+   * loop([ 1,2,3,4 ], x => x%2 ? x : loop.BREAK);    // ⇾ [ 1 ]
+   * loop([ 1,2,3,4 ], x => x%2 ? x : loop.EMPTY);    // ⇾ [ 1,,3, ]
+   * ```
+   */
   const loop = (obj, looper, { back, initial } = {}) => {
     const isReduce = !is(initial, undefined);
     const arr = Object.entries(obj);
@@ -578,6 +608,12 @@ function mrInit(callerGlobalThis=globalThis){
     if(is(obj, Array)) return accum.map(([_, val]) => val);
     return Object.fromEntries(nonempty(accum));
   };//loop
+  const _CONTINUE = {}, _BREAK = {}, _EMPTY = {};
+  Object.defineProperties(loop, {
+    CONTINUE: { get: () => { throw _CONTINUE } },
+    BREAK   : { get: () => { throw _BREAK    } },
+    EMPTY   : { get: () => { throw _EMPTY    } },
+  });//defineProperties exports
 
   /** Capture the current callstack and parse it for easy access to line number, file name, etc.
    * @return {[string]}
@@ -1298,15 +1334,25 @@ function mrInit(callerGlobalThis=globalThis){
    * ss['Users'].col['Name'].values[5] = 'edited';
    * ss['Users'].col['Name'].values.write();
    * ```
+   * @example
+   * ```
+   * const menu = ss(SpreadsheetApp.openById(id)).read({ 'Lunch': ['values','notes'] });
+   * menu['Lunch'].col['Cost'].values[5] = 3.99;
+   * menu['Lunch'].col['Cost'].values.write();
+   * ```
    */
   const ss = spreadsheet => {
-    const _ss = spreadsheet ? ss : {};
+    if(spreadsheet && spreadsheet._wasUpgraded) return spreadsheet;//given spreadsheet already upgraded
+    if(!spreadsheet && ss._wasUpgraded) return ss;//we already upgraded the active spreadsheet
+    const _ss = spreadsheet ? {} : ss;//if using active spreadsheet, upgrade this ss function itself!
     if(!spreadsheet) spreadsheet = profile(
       () => retryGoogle(() => SpreadsheetApp.getActiveSpreadsheet()),
       { desc: `SpreadsheetApp.getActiveSpreadsheet()` }
     );//profile
     Object.assign(_ss, spreadsheet);
-    _ss.read = desc => Object.keys(desc).forEach(sheetName => {
+    Object.defineProperty(_ss, '_wasUpgraded', { value: true });//remember that we upgraded this
+    //support reading the spreadsheet in bulk, returning _ss for chaining
+    _ss.read = desc => (Object.keys(desc).forEach(sheetName => {
       //support indexing on sheets to access data by types; eg: ss['Users'].values
       const sheet = profile(
         () => retryGoogle(() => spreadsheet.getSheetByName(sheetName)), 
@@ -1336,6 +1382,7 @@ function mrInit(callerGlobalThis=globalThis){
       s.headings = desc[sheetName].filter(type => type=='values').length 
         ? s.values[headingRow]
         : retryGoogle(() => s.getRange('1:1').getValues()[headingRow]);
+      s.headings.row = 1+headingRow;
       //support accessing a column, indexible by its heading; eg: ss['Users'].col['Name'].values
       s.col = s.headings.reduce((col, heading, index) => {
         if(col[heading]) log.warn(`ss: Overwriting column heading: "${heading}"`);
@@ -1360,12 +1407,14 @@ function mrInit(callerGlobalThis=globalThis){
         });//reduce data
       }, {});//reduce col
       //support automatically combining all data types into a single table; eg: ss['Users'].combined
-      log(`desc[${sheetName}]: ${desc[sheetName]}`);
-      s.combined = desc[sheetName].reduce((combined, dataType) => (
-        log('combined: '+stringify(combined)),
-        combined.map((row, r) => [ ...row, ...(r ? s[dataType][r] : row.map(x => `${x}#${dataType}`)) ])
-      ));//reduce
-    });//ss.read
+      s.combined = desc[sheetName]
+      .reduce((combined, dataType) => (s[dataType]
+        .map((row, r) => [
+          ...combined.length ? combined[r] : [], 
+          ...s.headings.row-1<r ? row : row.map((_, c) => `${s.headings[c]}#${dataType}`)
+        ])//map row
+      ), []);//reduce combined
+    }), _ss);//ss.read returns _ss for chaining
     return _ss;
   };//ss
 
@@ -2114,8 +2163,6 @@ function mrInit(callerGlobalThis=globalThis){
   });//return Object.assign exports
   //#endregion EXPORT
 };//mrInit
-
-
 
 
 
