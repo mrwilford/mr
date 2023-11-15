@@ -6,7 +6,7 @@
 const _isClient  = !!globalThis.window, _isServer = !_isClient;
 
 //auto-initialize on client
-if(_isClient) globalThis.window.addEventListener('DOMContentLoaded', _ => mrInit())
+if(_isClient) document.addEventListener('DOMContentLoaded', _ => mrInit())
 
 /** Initialize the mr library.
  * @param {*} [callerGlobalThis] Defaults to ``globalThis`` where all functionality is attached.
